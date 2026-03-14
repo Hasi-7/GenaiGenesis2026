@@ -77,6 +77,14 @@ def main() -> None:
     else:
         camera = LocalCameraAdapter(config.camera_index)
     screenshot_manager = ScreenshotManager(camera)
+    if not screenshot_manager.is_opened():
+        logger.error(
+            "Receiver startup failed. Another process is already using %s:%d.",
+            config.mirror_listen_host,
+            config.mirror_listen_port,
+        )
+        screenshot_manager.release()
+        return
 
     state_tracker: StateTracker | LLMStateTracker
     if tracker_type == "llm" and client is not None:
