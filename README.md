@@ -15,6 +15,7 @@ From the repo root:
 ```powershell
 uv --directory server run cognitivesense
 uv --directory server run cognitivesense mirror
+uv --directory server run python main.py server
 ```
 
 From inside `server/`:
@@ -22,6 +23,7 @@ From inside `server/`:
 ```powershell
 uv run cognitivesense
 uv run cognitivesense mirror
+uv run python main.py server
 ```
 
 ### Checks
@@ -30,6 +32,12 @@ uv run cognitivesense mirror
 uv --directory server run pyright .
 uv --directory server run ruff check .
 ```
+
+### Ports
+
+- Desktop Electron bridge mode (`python main.py server`) listens on `9100` by default.
+- Raspberry Pi mirror mode (`cognitivesense mirror`) listens on `9000` by default.
+- Override them independently with `COGNITIVESENSE_SERVER_PORT` and `COGNITIVESENSE_MIRROR_PORT`.
 
 ## Mirror Smoke Test
 

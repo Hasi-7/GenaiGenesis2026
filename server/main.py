@@ -17,6 +17,7 @@ import os
 import signal
 import sys
 from collections.abc import Callable
+from typing import cast
 
 # Add the server directory to the path so sibling packages are importable.
 sys.path.insert(0, os.path.dirname(__file__))
@@ -26,7 +27,7 @@ from core.pipeline_controller import PipelineController
 from input.camera_adapter import LocalCameraAdapter, NetworkCameraAdapter
 from input.remote_media_server import RemoteMediaServer
 from input.screenshot_manager import ScreenshotManager
-from models.types import PipelineConfig
+from models.types import InputSource, PipelineConfig
 from openai import OpenAI
 from reasoning.llm_engine import LLMEngine, RateLimiter
 from state.state_tracker import LLMStateTracker, StateTracker
@@ -65,6 +66,18 @@ def _log_wsl_mirror_networking_help(port: int) -> None:
     )
 
 
+def _active_receiver_details(config: PipelineConfig) -> tuple[str, str, int] | None:
+    if config.input_source is InputSource.MIRROR_TCP:
+        return ("Mirror receiver", config.mirror_listen_host, config.mirror_listen_port)
+    if config.input_source is InputSource.REMOTE_MEDIA:
+        return (
+            "Remote media bridge",
+            config.remote_media_host,
+            config.remote_media_port,
+        )
+    return None
+
+
 def main() -> None:
     setup_logging()
 
@@ -80,9 +93,9 @@ def main() -> None:
 
     mirror_port = os.environ.get("COGNITIVESENSE_MIRROR_PORT")
     server_port = os.environ.get("COGNITIVESENSE_SERVER_PORT")
-    if mirror_port is not None:
+    if mirror_port is not None and config.input_source is InputSource.MIRROR_TCP:
         config.mirror_listen_port = int(mirror_port)
-    if server_port is not None:
+    if server_port is not None and config.input_source is InputSource.REMOTE_MEDIA:
         config.remote_media_port = int(server_port)
 
     tracker_type = os.environ.get("STATE_TRACKER_TYPE", config.state_tracker_type)
@@ -95,14 +108,14 @@ def main() -> None:
         config.target_fps,
         tracker_type,
     )
-    if env == "mirror":
+    if config.input_source is InputSource.MIRROR_TCP:
         logger.info(
             "Mirror receiver configured for %s:%d",
             config.mirror_listen_host,
             config.mirror_listen_port,
         )
         _log_wsl_mirror_networking_help(config.mirror_listen_port)
-    elif config.remote_media_enabled:
+    elif config.input_source is InputSource.REMOTE_MEDIA:
         logger.info(
             "Remote media bridge configured for %s:%d",
             config.remote_media_host,
@@ -146,7 +159,7 @@ def main() -> None:
     remote_media_server: RemoteMediaServer | None = None
     mic_source = None
 
-    if config.remote_media_enabled:
+    if config.input_source is InputSource.REMOTE_MEDIA:
         remote_media_server = RemoteMediaServer(
             host=config.remote_media_host,
             port=config.remote_media_port,
@@ -156,7 +169,7 @@ def main() -> None:
         mic_source = (
             remote_media_server.make_mic_source() if config.mic_enabled else None
         )
-    elif env == "mirror":
+    elif config.input_source is InputSource.MIRROR_TCP:
         camera = NetworkCameraAdapter(
             config.mirror_listen_host,
             config.mirror_listen_port,
@@ -166,11 +179,20 @@ def main() -> None:
     screenshot_manager = ScreenshotManager(camera)
     cleanup_callbacks.append(screenshot_manager.release)
     if not screenshot_manager.is_opened():
-        logger.error(
-            "Receiver startup failed. Another process is already using %s:%d.",
-            config.mirror_listen_host,
-            config.mirror_listen_port,
-        )
+        receiver = _active_receiver_details(config)
+        if receiver is None:
+            logger.error(
+                "Camera startup failed. Could not open local camera index %d.",
+                config.camera_index,
+            )
+        else:
+            receiver_name, receiver_host, receiver_port = receiver
+            logger.error(
+                "%s startup failed. Another process may already be using %s:%d.",
+                receiver_name,
+                receiver_host,
+                receiver_port,
+            )
         _run_cleanup()
         return
 
@@ -196,18 +218,19 @@ def main() -> None:
     )
     cleanup_callbacks.append(controller.close)
 
-    handled_signals = [signal.SIGINT, signal.SIGTERM]
-    if hasattr(signal, "SIGBREAK"):
-        handled_signals.append(signal.SIGBREAK)
+    handled_signals: list[signal.Signals] = [signal.SIGINT, signal.SIGTERM]
+    sigbreak = getattr(signal, "SIGBREAK", None)
+    if isinstance(sigbreak, signal.Signals):
+        handled_signals.append(sigbreak)
 
-    previous_handlers: dict[int, signal.Handlers] = {}
+    previous_handlers: dict[signal.Signals, signal.Handlers] = {}
 
     def _handle_shutdown(signum: int, _frame: object) -> None:
         logger.info("Received signal %s; shutting down", signum)
         controller.request_stop()
 
     for sig in handled_signals:
-        previous_handlers[sig] = signal.getsignal(sig)
+        previous_handlers[sig] = cast(signal.Handlers, signal.getsignal(sig))
         signal.signal(sig, _handle_shutdown)
 
     logger.info("Server startup complete; entering pipeline loop")

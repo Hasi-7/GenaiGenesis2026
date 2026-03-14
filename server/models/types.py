@@ -15,6 +15,13 @@ class CognitiveStateLabel(Enum):
 class Environment(Enum):
     DESKTOP = "desktop"
     MIRROR = "mirror"
+    SERVER = "server"
+
+
+class InputSource(Enum):
+    LOCAL_CAMERA = "local_camera"
+    MIRROR_TCP = "mirror_tcp"
+    REMOTE_MEDIA = "remote_media"
 
 
 @dataclass(slots=True)
@@ -128,11 +135,11 @@ class PipelineConfig:
     """Configuration controlling pipeline behavior."""
 
     environment: Environment
+    input_source: InputSource = InputSource.LOCAL_CAMERA
     camera_index: int = 0
     state_tracker_type: str = "rule"  # "rule" or "llm"
     mic_enabled: bool = True
     target_fps: int = 15
-    remote_media_enabled: bool = False
     remote_media_host: str = "0.0.0.0"
     remote_media_port: int = 9100
     renderer_enabled: bool = True
@@ -150,6 +157,7 @@ class PipelineConfig:
     def desktop() -> PipelineConfig:
         return PipelineConfig(
             environment=Environment.DESKTOP,
+            input_source=InputSource.LOCAL_CAMERA,
             camera_index=0,
             mic_enabled=True,
         )
@@ -158,6 +166,7 @@ class PipelineConfig:
     def mirror() -> PipelineConfig:
         return PipelineConfig(
             environment=Environment.MIRROR,
+            input_source=InputSource.MIRROR_TCP,
             camera_index=0,
             mic_enabled=False,
             target_fps=15,
@@ -169,11 +178,11 @@ class PipelineConfig:
     @staticmethod
     def server() -> PipelineConfig:
         return PipelineConfig(
-            environment=Environment.DESKTOP,
+            environment=Environment.SERVER,
+            input_source=InputSource.REMOTE_MEDIA,
             camera_index=0,
             mic_enabled=True,
             target_fps=15,
-            remote_media_enabled=True,
             remote_media_host="0.0.0.0",
             remote_media_port=9100,
             renderer_enabled=False,

@@ -14,6 +14,7 @@ from models.protocols import MicSource
 from models.types import (
     CognitiveState,
     FrameAnalysis,
+    InputSource,
     LLMRequest,
     LLMResponse,
     PipelineConfig,
@@ -102,10 +103,10 @@ class PipelineController:
         # UI renderer
         if not config.renderer_enabled:
             self._renderer: DesktopUI | MirrorUI | None = None
-        elif config.environment.value == "desktop":
-            self._renderer = DesktopUI()
-        else:
+        elif config.environment.value == "mirror":
             self._renderer = MirrorUI()
+        else:
+            self._renderer = DesktopUI()
 
     def subscribe(self, callback: Callable[[LLMResponse], None]) -> None:
         """Register a callback invoked on each LLM response."""
@@ -363,11 +364,18 @@ class PipelineController:
             return
 
         waited = now - self._waiting_for_frames_since
-        if self._config.environment.value == "mirror":
+        if self._config.input_source is InputSource.MIRROR_TCP:
             logger.info(
                 "Waiting for mirror frames on %s:%d (%.1fs elapsed)",
                 self._config.mirror_listen_host,
                 self._config.mirror_listen_port,
+                waited,
+            )
+        elif self._config.input_source is InputSource.REMOTE_MEDIA:
+            logger.info(
+                "Waiting for frontend media on %s:%d (%.1fs elapsed)",
+                self._config.remote_media_host,
+                self._config.remote_media_port,
                 waited,
             )
         else:
