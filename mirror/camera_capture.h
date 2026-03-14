@@ -31,6 +31,7 @@ typedef struct camera_capture_s {
     atomic_bool thread_started;
     capture_status_t status;
     int backend_fd;
+    uint32_t backend_buffer_type;
     uint32_t backend_fourcc;
     size_t backend_frame_size_bytes;
     uint8_t *backend_frame_buffer;

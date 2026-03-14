@@ -165,6 +165,13 @@ static size_t backend_frame_size(uint32_t fourcc, uint32_t width, uint32_t heigh
     }
 }
 
+static uint32_t active_capabilities(const struct v4l2_capability *capability) {
+    if ((capability->capabilities & V4L2_CAP_DEVICE_CAPS) != 0U) {
+        return capability->device_caps;
+    }
+    return capability->capabilities;
+}
+
 static uint8_t clamp_channel(int value) {
     if (value < 0) {
         return 0U;
@@ -237,6 +244,8 @@ static void swap_rgb_channels(const uint8_t *source, uint8_t *destination, size_
 
 static int open_backend(camera_capture_t *capture) {
     struct v4l2_capability capability;
+    uint32_t capabilities;
+    uint32_t buffer_type;
     const uint32_t desired_fourcc = requested_fourcc(capture->config.pixel_format);
     const uint32_t fallback_fourcc = alternate_fourcc(capture->config.pixel_format);
     const uint32_t candidates[3] = {desired_fourcc, fallback_fourcc, V4L2_PIX_FMT_YUYV};
@@ -261,41 +270,80 @@ static int open_backend(camera_capture_t *capture) {
         close(device_fd);
         return error_code;
     }
-    if ((capability.capabilities & V4L2_CAP_VIDEO_CAPTURE) == 0U) {
+    capabilities = active_capabilities(&capability);
+    if ((capabilities & V4L2_CAP_VIDEO_CAPTURE) != 0U) {
+        buffer_type = V4L2_BUF_TYPE_VIDEO_CAPTURE;
+    } else if ((capabilities & V4L2_CAP_VIDEO_CAPTURE_MPLANE) != 0U) {
+        buffer_type = V4L2_BUF_TYPE_VIDEO_CAPTURE_MPLANE;
+    } else {
         close(device_fd);
         return CAMERA_CAPTURE_ERR_UNSUPPORTED;
     }
 
     for (index = 0U; index < 3U; ++index) {
         struct v4l2_format format;
+        size_t computed_size;
 
         memset(&format, 0, sizeof(format));
-        format.type = V4L2_BUF_TYPE_VIDEO_CAPTURE;
-        format.fmt.pix.width = capture->config.width;
-        format.fmt.pix.height = capture->config.height;
-        format.fmt.pix.field = V4L2_FIELD_NONE;
-        format.fmt.pix.pixelformat = candidates[index];
-        if (format.fmt.pix.pixelformat == 0U) {
+        format.type = buffer_type;
+        if (buffer_type == V4L2_BUF_TYPE_VIDEO_CAPTURE_MPLANE) {
+            format.fmt.pix_mp.width = capture->config.width;
+            format.fmt.pix_mp.height = capture->config.height;
+            format.fmt.pix_mp.field = V4L2_FIELD_NONE;
+            format.fmt.pix_mp.pixelformat = candidates[index];
+            format.fmt.pix_mp.num_planes = 1U;
+        } else {
+            format.fmt.pix.width = capture->config.width;
+            format.fmt.pix.height = capture->config.height;
+            format.fmt.pix.field = V4L2_FIELD_NONE;
+            format.fmt.pix.pixelformat = candidates[index];
+        }
+        if (candidates[index] == 0U) {
             continue;
         }
         if (ioctl(device_fd, VIDIOC_S_FMT, &format) < 0) {
             continue;
         }
-        if (format.fmt.pix.width != capture->config.width || format.fmt.pix.height != capture->config.height) {
-            continue;
-        }
-        if (format.fmt.pix.pixelformat != candidates[index]) {
-            continue;
+        if (buffer_type == V4L2_BUF_TYPE_VIDEO_CAPTURE_MPLANE) {
+            if (
+                format.fmt.pix_mp.width != capture->config.width
+                || format.fmt.pix_mp.height != capture->config.height
+            ) {
+                continue;
+            }
+            if (format.fmt.pix_mp.pixelformat != candidates[index]) {
+                continue;
+            }
+            computed_size = backend_frame_size(
+                format.fmt.pix_mp.pixelformat,
+                capture->config.width,
+                capture->config.height
+            );
+            capture->backend_frame_size_bytes = format.fmt.pix_mp.plane_fmt[0].sizeimage;
+        } else {
+            if (
+                format.fmt.pix.width != capture->config.width
+                || format.fmt.pix.height != capture->config.height
+            ) {
+                continue;
+            }
+            if (format.fmt.pix.pixelformat != candidates[index]) {
+                continue;
+            }
+            computed_size = backend_frame_size(
+                format.fmt.pix.pixelformat,
+                capture->config.width,
+                capture->config.height
+            );
+            capture->backend_frame_size_bytes = format.fmt.pix.sizeimage;
         }
 
-        capture->backend_frame_size_bytes = backend_frame_size(
-            format.fmt.pix.pixelformat,
-            capture->config.width,
-            capture->config.height
-        );
-        if (capture->backend_frame_size_bytes == 0U) {
+        if (computed_size == 0U) {
             close(device_fd);
             return CAMERA_CAPTURE_ERR_UNSUPPORTED;
+        }
+        if (capture->backend_frame_size_bytes == 0U) {
+            capture->backend_frame_size_bytes = computed_size;
         }
 
         capture->backend_frame_buffer = malloc(capture->backend_frame_size_bytes);
@@ -304,13 +352,13 @@ static int open_backend(camera_capture_t *capture) {
             return CAMERA_CAPTURE_ERR_ALLOC;
         }
 
-        if ((capability.capabilities & V4L2_CAP_STREAMING) != 0U) {
+        if ((capabilities & V4L2_CAP_STREAMING) != 0U) {
             struct v4l2_requestbuffers request;
             size_t buffer_index;
 
             memset(&request, 0, sizeof(request));
             request.count = CAMERA_STREAM_BUFFER_COUNT;
-            request.type = V4L2_BUF_TYPE_VIDEO_CAPTURE;
+            request.type = buffer_type;
             request.memory = V4L2_MEMORY_MMAP;
             if (ioctl(device_fd, VIDIOC_REQBUFS, &request) == 0 && request.count > 0U) {
                 const size_t stream_count = request.count < CAMERA_STREAM_BUFFER_COUNT
@@ -319,30 +367,45 @@ static int open_backend(camera_capture_t *capture) {
 
                 for (buffer_index = 0U; buffer_index < stream_count; ++buffer_index) {
                     struct v4l2_buffer buffer;
+                    struct v4l2_plane planes[VIDEO_MAX_PLANES];
                     void *mapped_buffer;
+                    size_t buffer_length;
+                    off_t buffer_offset;
 
                     memset(&buffer, 0, sizeof(buffer));
-                    buffer.type = V4L2_BUF_TYPE_VIDEO_CAPTURE;
+                    memset(planes, 0, sizeof(planes));
+                    buffer.type = buffer_type;
                     buffer.memory = V4L2_MEMORY_MMAP;
                     buffer.index = (uint32_t) buffer_index;
+                    if (buffer_type == V4L2_BUF_TYPE_VIDEO_CAPTURE_MPLANE) {
+                        buffer.length = 1U;
+                        buffer.m.planes = planes;
+                    }
                     if (ioctl(device_fd, VIDIOC_QUERYBUF, &buffer) < 0) {
                         break;
+                    }
+                    if (buffer_type == V4L2_BUF_TYPE_VIDEO_CAPTURE_MPLANE) {
+                        buffer_length = planes[0].length;
+                        buffer_offset = (off_t) planes[0].m.mem_offset;
+                    } else {
+                        buffer_length = buffer.length;
+                        buffer_offset = (off_t) buffer.m.offset;
                     }
 
                     mapped_buffer = mmap(
                         NULL,
-                        buffer.length,
+                        buffer_length,
                         PROT_READ | PROT_WRITE,
                         MAP_SHARED,
                         device_fd,
-                        (off_t) buffer.m.offset
+                        buffer_offset
                     );
                     if (mapped_buffer == MAP_FAILED) {
                         break;
                     }
 
                     capture->backend_stream_buffers[buffer_index] = mapped_buffer;
-                    capture->backend_stream_buffer_lengths[buffer_index] = buffer.length;
+                    capture->backend_stream_buffer_lengths[buffer_index] = buffer_length;
                     capture->backend_stream_buffer_count = buffer_index + 1U;
 
                     if (ioctl(device_fd, VIDIOC_QBUF, &buffer) < 0) {
@@ -351,7 +414,7 @@ static int open_backend(camera_capture_t *capture) {
                 }
 
                 if (capture->backend_stream_buffer_count > 0U) {
-                    enum v4l2_buf_type stream_type = V4L2_BUF_TYPE_VIDEO_CAPTURE;
+                    enum v4l2_buf_type stream_type = (enum v4l2_buf_type) buffer_type;
 
                     if (ioctl(device_fd, VIDIOC_STREAMON, &stream_type) == 0) {
                         capture->backend_streaming = true;
@@ -361,7 +424,10 @@ static int open_backend(camera_capture_t *capture) {
         }
 
         capture->backend_fd = device_fd;
-        capture->backend_fourcc = format.fmt.pix.pixelformat;
+        capture->backend_buffer_type = buffer_type;
+        capture->backend_fourcc = buffer_type == V4L2_BUF_TYPE_VIDEO_CAPTURE_MPLANE
+            ? format.fmt.pix_mp.pixelformat
+            : format.fmt.pix.pixelformat;
         return CAMERA_CAPTURE_OK;
     }
 
@@ -371,7 +437,7 @@ static int open_backend(camera_capture_t *capture) {
 
 static void close_backend(camera_capture_t *capture) {
     if (capture->backend_fd >= 0 && capture->backend_streaming) {
-        enum v4l2_buf_type stream_type = V4L2_BUF_TYPE_VIDEO_CAPTURE;
+        enum v4l2_buf_type stream_type = (enum v4l2_buf_type) capture->backend_buffer_type;
         ioctl(capture->backend_fd, VIDIOC_STREAMOFF, &stream_type);
     }
     while (capture->backend_stream_buffer_count > 0U) {
@@ -393,6 +459,7 @@ static void close_backend(camera_capture_t *capture) {
     }
     free(capture->backend_frame_buffer);
     capture->backend_frame_buffer = NULL;
+    capture->backend_buffer_type = 0U;
     capture->backend_frame_size_bytes = 0U;
     capture->backend_fourcc = 0U;
 }
@@ -448,12 +515,18 @@ static int read_device_bytes(camera_capture_t *capture, uint8_t *destination, si
 
 static int read_stream_frame(camera_capture_t *capture) {
     struct v4l2_buffer buffer;
+    struct v4l2_plane planes[VIDEO_MAX_PLANES];
     int wait_result;
 
     while (!atomic_load(&capture->stop_requested)) {
         memset(&buffer, 0, sizeof(buffer));
-        buffer.type = V4L2_BUF_TYPE_VIDEO_CAPTURE;
+        memset(planes, 0, sizeof(planes));
+        buffer.type = capture->backend_buffer_type;
         buffer.memory = V4L2_MEMORY_MMAP;
+        if (capture->backend_buffer_type == V4L2_BUF_TYPE_VIDEO_CAPTURE_MPLANE) {
+            buffer.length = 1U;
+            buffer.m.planes = planes;
+        }
         if (ioctl(capture->backend_fd, VIDIOC_DQBUF, &buffer) == 0) {
             size_t bytes_to_copy;
             int queue_result;
@@ -461,7 +534,9 @@ static int read_stream_frame(camera_capture_t *capture) {
             if ((size_t) buffer.index >= capture->backend_stream_buffer_count) {
                 return EINVAL;
             }
-            bytes_to_copy = (size_t) buffer.bytesused;
+            bytes_to_copy = capture->backend_buffer_type == V4L2_BUF_TYPE_VIDEO_CAPTURE_MPLANE
+                ? (size_t) planes[0].bytesused
+                : (size_t) buffer.bytesused;
             if (bytes_to_copy == 0U) {
                 queue_result = ioctl(capture->backend_fd, VIDIOC_QBUF, &buffer);
                 if (queue_result < 0) {
