@@ -1,1 +1,1 @@
-Use `uv` for Python.
+Use `uv` for Python. Simply install from the package manager rather than editing pyproject.toml
