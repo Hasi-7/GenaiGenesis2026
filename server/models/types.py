@@ -22,6 +22,7 @@ class InputSource(Enum):
     LOCAL_CAMERA = "local_camera"
     MIRROR_TCP = "mirror_tcp"
     REMOTE_MEDIA = "remote_media"
+    DUAL_NETWORK = "dual_network"
 
 
 @dataclass(slots=True)
@@ -179,11 +180,13 @@ class PipelineConfig:
     def server() -> PipelineConfig:
         return PipelineConfig(
             environment=Environment.SERVER,
-            input_source=InputSource.REMOTE_MEDIA,
+            input_source=InputSource.DUAL_NETWORK,
             camera_index=0,
             mic_enabled=True,
             target_fps=15,
             remote_media_host="0.0.0.0",
             remote_media_port=9100,
+            mirror_listen_host="0.0.0.0",
+            mirror_listen_port=9000,
             renderer_enabled=False,
         )

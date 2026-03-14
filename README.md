@@ -35,8 +35,8 @@ uv --directory server run ruff check .
 
 ### Ports
 
-- Desktop Electron bridge mode (`python main.py server`) listens on `9100` by default.
-- Raspberry Pi mirror mode (`cognitivesense mirror`) listens on `9000` by default.
+- Server mode (`python main.py server`) listens on both `9100` for the Electron bridge and `9000` for Raspberry Pi mirror frames.
+- Raspberry Pi-only mirror mode (`cognitivesense mirror`) listens on `9000` by default.
 - Override them independently with `COGNITIVESENSE_SERVER_PORT` and `COGNITIVESENSE_MIRROR_PORT`.
 
 ## Mirror Smoke Test

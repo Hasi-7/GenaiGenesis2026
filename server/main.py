@@ -14,7 +14,9 @@ from __future__ import annotations
 import atexit
 import logging
 import os
+import shutil
 import signal
+import subprocess
 import sys
 from collections.abc import Callable
 from typing import cast
@@ -25,6 +27,7 @@ sys.path.insert(0, os.path.dirname(__file__))
 from config.logging_config import setup_logging
 from core.pipeline_controller import PipelineController
 from input.camera_adapter import LocalCameraAdapter, NetworkCameraAdapter
+from input.combined_camera_source import CombinedCameraSource
 from input.remote_media_server import RemoteMediaServer
 from input.screenshot_manager import ScreenshotManager
 from models.types import InputSource, PipelineConfig
@@ -66,14 +69,74 @@ def _log_wsl_mirror_networking_help(port: int) -> None:
     )
 
 
-def _active_receiver_details(config: PipelineConfig) -> tuple[str, str, int] | None:
+def _kill_processes_using_ports(*ports: int) -> None:
+    unique_ports = tuple(sorted(set(ports)))
+    if not unique_ports:
+        return
+
+    fuser = shutil.which("fuser")
+    if fuser is not None:
+        result = subprocess.run(
+            [fuser, "-k", *[f"{port}/tcp" for port in unique_ports]],
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        if result.returncode in {0, 1}:
+            if result.returncode == 0:
+                logger.warning(
+                    "Killed existing processes using TCP ports %s",
+                    ", ".join(str(port) for port in unique_ports),
+                )
+            return
+
+    lsof = shutil.which("lsof")
+    if lsof is None:
+        logger.warning(
+            "Could not verify or kill existing listeners on TCP ports %s",
+            ", ".join(str(port) for port in unique_ports),
+        )
+        return
+
+    result = subprocess.run(
+        [lsof, "-nP", "-t", *[f"-iTCP:{port}" for port in unique_ports]],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    if result.returncode != 0:
+        return
+
+    pids = {
+        int(line.strip())
+        for line in result.stdout.splitlines()
+        if line.strip().isdigit() and int(line.strip()) != os.getpid()
+    }
+    for pid in sorted(pids):
+        os.kill(pid, signal.SIGKILL)
+
+    if pids:
+        logger.warning(
+            "Killed existing processes using TCP ports %s",
+            ", ".join(str(port) for port in unique_ports),
+        )
+
+
+def _active_receiver_details(config: PipelineConfig) -> str | None:
     if config.input_source is InputSource.MIRROR_TCP:
-        return ("Mirror receiver", config.mirror_listen_host, config.mirror_listen_port)
+        return (
+            f"mirror receiver on {config.mirror_listen_host}:"
+            f"{config.mirror_listen_port}"
+        )
     if config.input_source is InputSource.REMOTE_MEDIA:
         return (
-            "Remote media bridge",
-            config.remote_media_host,
-            config.remote_media_port,
+            f"remote media bridge on {config.remote_media_host}:"
+            f"{config.remote_media_port}"
+        )
+    if config.input_source is InputSource.DUAL_NETWORK:
+        return (
+            f"dual listeners on {config.remote_media_host}:{config.remote_media_port} "
+            f"and {config.mirror_listen_host}:{config.mirror_listen_port}"
         )
     return None
 
@@ -95,8 +158,19 @@ def main() -> None:
     server_port = os.environ.get("COGNITIVESENSE_SERVER_PORT")
     if mirror_port is not None and config.input_source is InputSource.MIRROR_TCP:
         config.mirror_listen_port = int(mirror_port)
-    if server_port is not None and config.input_source is InputSource.REMOTE_MEDIA:
+    if server_port is not None and config.input_source in {
+        InputSource.REMOTE_MEDIA,
+        InputSource.DUAL_NETWORK,
+    }:
         config.remote_media_port = int(server_port)
+    if mirror_port is not None and config.input_source is InputSource.DUAL_NETWORK:
+        config.mirror_listen_port = int(mirror_port)
+
+    if config.input_source is InputSource.DUAL_NETWORK:
+        _kill_processes_using_ports(
+            config.remote_media_port,
+            config.mirror_listen_port,
+        )
 
     tracker_type = os.environ.get("STATE_TRACKER_TYPE", config.state_tracker_type)
     api_key = os.environ.get("OPENAI_API_KEY")
@@ -121,6 +195,16 @@ def main() -> None:
             config.remote_media_host,
             config.remote_media_port,
         )
+    elif config.input_source is InputSource.DUAL_NETWORK:
+        logger.info(
+            "Dual listener server configured for frontend media on %s:%d and "
+            "mirror frames on %s:%d",
+            config.remote_media_host,
+            config.remote_media_port,
+            config.mirror_listen_host,
+            config.mirror_listen_port,
+        )
+        _log_wsl_mirror_networking_help(config.mirror_listen_port)
     else:
         logger.info("Using local camera index %d", config.camera_index)
 
@@ -159,12 +243,29 @@ def main() -> None:
     remote_media_server: RemoteMediaServer | None = None
     mic_source = None
 
-    if config.input_source is InputSource.REMOTE_MEDIA:
+    if config.input_source is InputSource.DUAL_NETWORK:
         remote_media_server = RemoteMediaServer(
             host=config.remote_media_host,
             port=config.remote_media_port,
         )
-        cleanup_callbacks.append(remote_media_server.release)
+        mirror_camera = NetworkCameraAdapter(
+            config.mirror_listen_host,
+            config.mirror_listen_port,
+        )
+        camera = CombinedCameraSource(
+            [
+                ("frontend-media", remote_media_server.make_camera_source()),
+                ("mirror", mirror_camera),
+            ]
+        )
+        mic_source = (
+            remote_media_server.make_mic_source() if config.mic_enabled else None
+        )
+    elif config.input_source is InputSource.REMOTE_MEDIA:
+        remote_media_server = RemoteMediaServer(
+            host=config.remote_media_host,
+            port=config.remote_media_port,
+        )
         camera = remote_media_server.make_camera_source()
         mic_source = (
             remote_media_server.make_mic_source() if config.mic_enabled else None
@@ -186,12 +287,9 @@ def main() -> None:
                 config.camera_index,
             )
         else:
-            receiver_name, receiver_host, receiver_port = receiver
             logger.error(
-                "%s startup failed. Another process may already be using %s:%d.",
-                receiver_name,
-                receiver_host,
-                receiver_port,
+                "Receiver startup failed for %s.",
+                receiver,
             )
         _run_cleanup()
         return
