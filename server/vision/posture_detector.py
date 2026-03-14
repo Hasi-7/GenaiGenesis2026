@@ -23,11 +23,37 @@ Single-thread assumption: not thread-safe. Call from main pipeline loop only.
 from __future__ import annotations
 
 import math
+from typing import Protocol
 
-import numpy as np
 import mediapipe as mp  # type: ignore[import-untyped]
-
+import numpy as np
 from models.types import ClassifierResult, PostureData
+
+
+class PostureDetectorProtocol(Protocol):
+    """Protocol for posture detection via MediaPipe Pose."""
+
+    def detect(self, frame_rgb: np.ndarray) -> PostureData | None:
+        """
+        Detect pose and compute posture metrics.
+
+        Uses shoulder landmarks (11, 12), ear landmarks (7, 8), nose (0).
+        Returns None if no pose is detected.
+        """
+        ...
+
+    def classify(self, posture_data: PostureData) -> ClassifierResult:
+        """
+        Classify posture quality.
+
+        Labels: "upright", "slouching" (shoulder deviation >15deg),
+                "leaning" (head tilt >20deg).
+        """
+        ...
+
+    def close(self) -> None:
+        """Release detector resources."""
+        ...
 
 
 # MediaPipe Pose landmark indices used for posture estimation

@@ -25,11 +25,30 @@ from __future__ import annotations
 
 import time
 from collections import deque
-from dataclasses import dataclass
+from typing import Protocol
 
 import numpy as np
-
 from models.types import BlinkData, ClassifierResult
+
+
+class BlinkDetectorProtocol(Protocol):
+    """Protocol for blink detection via Eye Aspect Ratio."""
+
+    def detect(self, landmarks: np.ndarray) -> BlinkData:
+        """Compute EAR values and detect blinks from face landmarks."""
+        ...
+
+    def classify(self, blink_data: BlinkData) -> ClassifierResult:
+        """
+        Classify fatigue based on blink rate.
+
+        Labels: "normal" (15-20/min), "fatigued" (>25/min), "stressed" (<10/min).
+        """
+        ...
+
+    def reset(self) -> None:
+        """Reset blink counter and frame history."""
+        ...
 
 
 # MediaPipe Face Mesh landmark indices for EAR computation.

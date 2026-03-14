@@ -24,10 +24,30 @@ Single-thread assumption: all methods are NOT thread-safe.
 from __future__ import annotations
 
 from collections import deque
+from typing import Protocol
 
 import numpy as np
-
 from models.types import ClassifierResult, GazeData
+
+
+class EyeMovementDetectorProtocol(Protocol):
+    """Protocol for gaze direction estimation from iris landmarks."""
+
+    def detect(self, landmarks: np.ndarray) -> GazeData:
+        """
+        Compute gaze direction from iris position relative to eye contours.
+
+        Uses iris landmarks 468 (left center) and 473 (right center).
+        """
+        ...
+
+    def classify(self, gaze_data: GazeData) -> ClassifierResult:
+        """
+        Classify attention based on gaze stability.
+
+        Labels: "focused" (sustained center), "distracted" (frequent off-center).
+        """
+        ...
 
 
 # -----------------------------------------------------------------------

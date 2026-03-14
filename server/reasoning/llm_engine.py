@@ -1,15 +1,28 @@
 from __future__ import annotations
 
 import time
+from typing import Protocol
 
 from dotenv import load_dotenv
-from openai import OpenAI
-
 from models.types import (
     CognitiveStateLabel,
     LLMRequest,
     LLMResponse,
 )
+from openai import OpenAI
+
+
+class ReasoningEngine(Protocol):
+    """Protocol for LLM-based cognitive feedback with rate limiting."""
+
+    def request_feedback(self, request: LLMRequest) -> LLMResponse | None:
+        """
+        Send state transition to LLM for analysis.
+
+        Returns None if rate limited (cooldown not elapsed) or
+        budget exceeded ($5 cumulative cap).
+        """
+        ...
 
 load_dotenv()
 

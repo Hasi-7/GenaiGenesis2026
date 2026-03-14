@@ -3,6 +3,7 @@ from __future__ import annotations
 import time
 from collections import deque
 from collections.abc import Sequence
+from typing import Protocol
 
 from models.types import (
     ClassifierResult,
@@ -11,6 +12,40 @@ from models.types import (
     FrameAnalysis,
     StateTransition,
 )
+
+
+class StateTrackerProtocol(Protocol):
+    """Protocol for sliding window state tracking and change detection."""
+
+    def add_frame(self, analysis: FrameAnalysis) -> None:
+        """Add a frame analysis to the sliding window."""
+        ...
+
+    def get_current_state(self) -> CognitiveState:
+        """
+        Compute smoothed cognitive state from the sliding window.
+
+        Uses weighted voting across all signals in the window.
+        """
+        ...
+
+    def detect_transition(self) -> StateTransition | None:
+        """
+        Compare first half (5s) and second half (5s) of the window.
+
+        Returns StateTransition if:
+        - Dominant label differs between halves
+        - New confidence > confidence_threshold (0.6)
+        - Confidence delta > state_change_threshold (0.3)
+        - Both halves are sufficiently populated
+
+        Returns None otherwise.
+        """
+        ...
+
+    def get_recent_analyses(self, seconds: float = ...) -> list[FrameAnalysis]:
+        """Return frame analyses from the last N seconds."""
+        ...
 
 # Maps classifier labels → CognitiveStateLabel
 _LABEL_TO_STATE: dict[str, CognitiveStateLabel] = {

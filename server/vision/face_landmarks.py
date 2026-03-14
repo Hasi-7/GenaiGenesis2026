@@ -35,12 +35,54 @@ Usage example::
 from __future__ import annotations
 
 import os
-import numpy as np
+from typing import Protocol
+
 import mediapipe as mp  # type: ignore[import-untyped]
+import numpy as np
 from mediapipe.tasks import python as mp_tasks  # type: ignore[import-untyped]
 from mediapipe.tasks.python import vision as mp_vision  # type: ignore[import-untyped]
 
 _MODEL_PATH = os.path.join(os.path.dirname(__file__), "face_landmarker_v2_with_blendshapes.task")
+
+
+class FaceLandmarkSource(Protocol):
+    """Protocol for face landmark detection (MediaPipe Face Mesh)."""
+
+    def detect(self, frame_rgb: np.ndarray) -> list[np.ndarray] | None:
+        """
+        Detect faces and return landmark arrays.
+
+        Each array has shape (478, 3) with normalized (x, y, z) coords.
+        Returns None if no face is detected.
+        """
+        ...
+
+    def close(self) -> None:
+        """Release detector resources."""
+        ...
+
+
+class BlendshapeLandmarkSource(Protocol):
+    """Protocol for face landmark detection with blendshape output."""
+
+    def detect(self, frame_rgb: np.ndarray) -> list[np.ndarray] | None:
+        """
+        Detect faces and return landmark arrays.
+
+        Each array has shape (478, 3) with normalized (x, y, z) coords.
+        Returns None if no face is detected.
+        Side-effect: populates last_blendshapes.
+        """
+        ...
+
+    @property
+    def last_blendshapes(self) -> list[dict[str, float]] | None:
+        """Blendshapes from the most recent detect() call, or None if no face."""
+        ...
+
+    def close(self) -> None:
+        """Release detector resources."""
+        ...
 
 
 class MediaPipeFaceLandmarkSource:

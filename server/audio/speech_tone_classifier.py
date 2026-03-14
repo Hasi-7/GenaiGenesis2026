@@ -1,10 +1,27 @@
 from __future__ import annotations
 
+from typing import Protocol
+
 import numpy as np
+from models.types import ClassifierResult
 from numpy.typing import NDArray
 from transformers import pipeline  # type: ignore[import-untyped]
 
-from models.types import ClassifierResult
+
+class SpeechToneClassifierProtocol(Protocol):
+    """Protocol for speech tone classification from audio."""
+
+    def classify(
+        self,
+        audio_chunk: NDArray[np.float32],
+        sample_rate: int = ...,
+    ) -> ClassifierResult:
+        """
+        Classify tone from audio features.
+
+        Labels: "calm", "stressed", "monotone", "silent".
+        """
+        ...
 
 # Maps HuggingFace emotion labels → protocol labels ("calm", "stressed", "monotone", "silent")
 _EMOTION_TO_TONE: dict[str, str] = {

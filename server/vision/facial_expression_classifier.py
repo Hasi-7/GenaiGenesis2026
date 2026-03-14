@@ -30,7 +30,21 @@ Single-thread assumption: stateless classifier, safe to call at 15 FPS.
 
 from __future__ import annotations
 
+from typing import Protocol
+
 from models.types import ClassifierResult
+
+
+class BlendshapeExpressionClassifierProtocol(Protocol):
+    """Protocol for facial expression classification from blendshapes."""
+
+    def classify(self, blendshapes: dict[str, float]) -> ClassifierResult:
+        """
+        Classify facial expression from blendshape coefficients.
+
+        Labels: "neutral", "tense", "relaxed".
+        """
+        ...
 
 
 # -----------------------------------------------------------------------
