@@ -12,7 +12,6 @@ Or directly::
 from __future__ import annotations
 
 import os
-import os
 import sys
 
 # Add the server directory to the path so all server modules are importable
