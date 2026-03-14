@@ -30,11 +30,13 @@ typedef struct camera_capture_s {
     atomic_bool initialized;
     atomic_bool thread_started;
     capture_status_t status;
+    int backend_mode;
     int backend_fd;
     uint32_t backend_buffer_type;
     uint32_t backend_fourcc;
     size_t backend_frame_size_bytes;
     uint8_t *backend_frame_buffer;
+    char backend_command[32];
     bool backend_streaming;
     size_t backend_stream_buffer_count;
     void *backend_stream_buffers[4];
