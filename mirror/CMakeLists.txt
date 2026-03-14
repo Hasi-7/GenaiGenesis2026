@@ -7,16 +7,16 @@ set(CMAKE_C_EXTENSIONS OFF)
 
 add_library(
     mirror_capture
-    src/camera_capture.c
+    camera_capture.c
 )
 
 add_executable(
     mirror_capture_smoke
-    src/camera_capture_smoke.c
+    camera_capture_smoke.c
 )
 
-target_include_directories(mirror_capture PUBLIC include)
-target_include_directories(mirror_capture_smoke PRIVATE include)
+target_include_directories(mirror_capture PUBLIC ${CMAKE_CURRENT_SOURCE_DIR})
+target_include_directories(mirror_capture_smoke PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
 target_link_libraries(mirror_capture_smoke PRIVATE mirror_capture)
 
 if(UNIX AND NOT APPLE)

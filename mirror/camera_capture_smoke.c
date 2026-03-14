@@ -2,6 +2,7 @@
 
 #include "camera_capture.h"
 
+#include <errno.h>
 #include <stdbool.h>
 #include <stdint.h>
 #include <stdio.h>
@@ -10,7 +11,30 @@
 #include <time.h>
 
 #define CAMERA_CAPTURE_OK 0
+#define CAMERA_CAPTURE_ERR_INVALID 1
+#define CAMERA_CAPTURE_ERR_ALLOC 2
+#define CAMERA_CAPTURE_ERR_THREAD 3
+#define CAMERA_CAPTURE_ERR_UNSUPPORTED 4
 #define CAMERA_CAPTURE_ERR_EMPTY 5
+
+static const char *describe_error(int error_code) {
+    switch (error_code) {
+        case CAMERA_CAPTURE_OK:
+            return "ok";
+        case CAMERA_CAPTURE_ERR_INVALID:
+            return "invalid arguments or uninitialized capture";
+        case CAMERA_CAPTURE_ERR_ALLOC:
+            return "allocation failed";
+        case CAMERA_CAPTURE_ERR_THREAD:
+            return "thread startup failed";
+        case CAMERA_CAPTURE_ERR_UNSUPPORTED:
+            return "unsupported camera format or backend";
+        case CAMERA_CAPTURE_ERR_EMPTY:
+            return "no frame available yet";
+        default:
+            return strerror(error_code);
+    }
+}
 
 static void sleep_ms(long milliseconds) {
     struct timespec delay;
@@ -41,13 +65,29 @@ int main(int argc, char **argv) {
 
     result = camera_capture_init(&capture, &config);
     if (result != CAMERA_CAPTURE_OK) {
-        fprintf(stderr, "camera_capture_init failed: %d\n", result);
+        fprintf(
+            stderr,
+            "camera_capture_init failed: %d (%s)\n",
+            result,
+            describe_error(result)
+        );
         return 1;
     }
 
     result = camera_capture_start(&capture);
     if (result != CAMERA_CAPTURE_OK) {
-        fprintf(stderr, "camera_capture_start failed: %d\n", result);
+        fprintf(
+            stderr,
+            "camera_capture_start failed: %d (%s)\n",
+            result,
+            describe_error(result)
+        );
+        if (result == ENOENT) {
+            fprintf(
+                stderr,
+                "Hint: /dev/video0 is not available in this environment.\n"
+            );
+        }
         camera_capture_destroy(&capture);
         return 1;
     }
@@ -70,7 +110,12 @@ int main(int argc, char **argv) {
             return 0;
         }
         if (result != CAMERA_CAPTURE_ERR_EMPTY) {
-            fprintf(stderr, "camera_capture_get_latest_frame failed: %d\n", result);
+            fprintf(
+                stderr,
+                "camera_capture_get_latest_frame failed: %d (%s)\n",
+                result,
+                describe_error(result)
+            );
             camera_capture_destroy(&capture);
             return 1;
         }
