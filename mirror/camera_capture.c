@@ -11,11 +11,6 @@
 #include <time.h>
 
 #if defined(__linux__)
-#include <fcntl.h>
-#include <linux/videodev2.h>
-#include <sys/mman.h>
-#include <sys/ioctl.h>
-#include <sys/select.h>
 #include <sys/wait.h>
 #include <unistd.h>
 #endif
@@ -29,19 +24,6 @@
 
 #define CAMERA_BACKEND_NONE 0
 #define CAMERA_BACKEND_PI_CLI 1
-#define CAMERA_BACKEND_V4L2 2
-
-#define CAMERA_DEVICE_PATH "/dev/video0"
-#define CAMERA_WAIT_TIMEOUT_US 100000
-#define CAMERA_STREAM_BUFFER_COUNT 4U
-
-static const char *camera_device_path(void) {
-    const char *path = getenv("CAMERA_DEVICE_PATH");
-    if (path != NULL && path[0] != '\0') {
-        return path;
-    }
-    return CAMERA_DEVICE_PATH;
-}
 
 static uint32_t read_le32(const uint8_t *buffer) {
     return (uint32_t) buffer[0]
@@ -52,57 +34,6 @@ static uint32_t read_le32(const uint8_t *buffer) {
 
 static int32_t read_le32_signed(const uint8_t *buffer) {
     return (int32_t) read_le32(buffer);
-}
-
-static bool find_command_on_path(const char *command, char *resolved_path, size_t resolved_path_size) {
-    const char *path_env;
-    const char *segment_start;
-
-    if (command == NULL || resolved_path == NULL || resolved_path_size == 0U) {
-        return false;
-    }
-    if (strchr(command, '/') != NULL) {
-        if (access(command, X_OK) == 0) {
-            strncpy(resolved_path, command, resolved_path_size - 1U);
-            resolved_path[resolved_path_size - 1U] = '\0';
-            return true;
-        }
-        return false;
-    }
-
-    path_env = getenv("PATH");
-    if (path_env == NULL) {
-        return false;
-    }
-
-    segment_start = path_env;
-    while (*segment_start != '\0') {
-        const char *segment_end = strchr(segment_start, ':');
-        const size_t segment_length = segment_end == NULL
-            ? strlen(segment_start)
-            : (size_t) (segment_end - segment_start);
-
-        if (segment_length > 0U) {
-            const int written = snprintf(
-                resolved_path,
-                resolved_path_size,
-                "%.*s/%s",
-                (int) segment_length,
-                segment_start,
-                command
-            );
-            if (written > 0 && (size_t) written < resolved_path_size && access(resolved_path, X_OK) == 0) {
-                return true;
-            }
-        }
-
-        if (segment_end == NULL) {
-            break;
-        }
-        segment_start = segment_end + 1;
-    }
-
-    return false;
 }
 
 static uint64_t now_ns(void) {
@@ -130,7 +61,9 @@ static size_t bytes_per_pixel(pixel_format_t pixel_format) {
 }
 
 static size_t frame_byte_capacity(const camera_capture_t *capture) {
-    return (size_t) capture->config.width * (size_t) capture->config.height * bytes_per_pixel(capture->config.pixel_format);
+    return (size_t) capture->config.width
+        * (size_t) capture->config.height
+        * bytes_per_pixel(capture->config.pixel_format);
 }
 
 static void clear_frame(video_frame_t *frame) {
@@ -138,7 +71,7 @@ static void clear_frame(video_frame_t *frame) {
         return;
     }
     frame->timestamp_ns = 0;
-    frame->frame_size_bytes = 0;
+    frame->frame_size_bytes = 0U;
 }
 
 static int allocate_frames(camera_capture_t *capture) {
@@ -155,8 +88,9 @@ static int allocate_frames(camera_capture_t *capture) {
         return CAMERA_CAPTURE_ERR_ALLOC;
     }
 
-    for (i = 0; i < capture->config.buffer_capacity; ++i) {
+    for (i = 0U; i < capture->config.buffer_capacity; ++i) {
         video_frame_t *frame = &capture->frames[i];
+
         strncpy(frame->client_id, capture->config.client_id, CAPTURE_CLIENT_ID_MAX - 1U);
         frame->client_type = CLIENT_TYPE_MIRROR;
         frame->width = capture->config.width;
@@ -179,10 +113,11 @@ static void free_frames(camera_capture_t *capture) {
         return;
     }
 
-    for (i = 0; i < capture->config.buffer_capacity; ++i) {
+    for (i = 0U; i < capture->config.buffer_capacity; ++i) {
         free(capture->frames[i].frame_bytes);
         capture->frames[i].frame_bytes = NULL;
     }
+
     free(capture->frames);
     capture->frames = NULL;
     capture->frame_count = 0U;
@@ -198,6 +133,57 @@ static void mark_failure(camera_capture_t *capture, int error_code) {
 }
 
 #if defined(__linux__)
+static bool find_command_on_path(
+    const char *command,
+    char *resolved_path,
+    size_t resolved_path_size
+) {
+    const char *path_env;
+    const char *segment_start;
+
+    if (command == NULL || resolved_path == NULL || resolved_path_size == 0U) {
+        return false;
+    }
+
+    path_env = getenv("PATH");
+    if (path_env == NULL) {
+        return false;
+    }
+
+    segment_start = path_env;
+    while (*segment_start != '\0') {
+        const char *segment_end = strchr(segment_start, ':');
+        const size_t segment_length = segment_end == NULL
+            ? strlen(segment_start)
+            : (size_t) (segment_end - segment_start);
+
+        if (segment_length > 0U) {
+            const int written = snprintf(
+                resolved_path,
+                resolved_path_size,
+                "%.*s/%s",
+                (int) segment_length,
+                segment_start,
+                command
+            );
+            if (
+                written > 0
+                && (size_t) written < resolved_path_size
+                && access(resolved_path, X_OK) == 0
+            ) {
+                return true;
+            }
+        }
+
+        if (segment_end == NULL) {
+            break;
+        }
+        segment_start = segment_end + 1;
+    }
+
+    return false;
+}
+
 static int parse_bmp_frame(
     const uint8_t *bmp_bytes,
     size_t bmp_size,
@@ -214,6 +200,7 @@ static int parse_bmp_frame(
     uint16_t bits_per_pixel;
     uint32_t compression;
     uint32_t absolute_height;
+    size_t bytes_per_pixel_value;
     size_t row_size;
     uint32_t row_index;
     bool top_down;
@@ -232,7 +219,13 @@ static int parse_bmp_frame(
     bits_per_pixel = (uint16_t) (bmp_bytes[28] | ((uint16_t) bmp_bytes[29] << 8U));
     compression = read_le32(bmp_bytes + 30U);
 
-    if (dib_header_size < 40U || bits_per_pixel != 24U || compression != 0U) {
+    if (dib_header_size < 40U) {
+        return EINVAL;
+    }
+    if (bits_per_pixel != 24U && bits_per_pixel != 32U) {
+        return EINVAL;
+    }
+    if (compression != 0U && compression != 3U) {
         return EINVAL;
     }
     if (bmp_width <= 0 || bmp_height == 0) {
@@ -244,7 +237,8 @@ static int parse_bmp_frame(
         return EINVAL;
     }
 
-    row_size = ((((size_t) expected_width * 24U) + 31U) / 32U) * 4U;
+    bytes_per_pixel_value = (size_t) bits_per_pixel / 8U;
+    row_size = ((((size_t) expected_width * (size_t) bits_per_pixel) + 31U) / 32U) * 4U;
     if ((size_t) pixel_offset + row_size * (size_t) expected_height > bmp_size) {
         return EINVAL;
     }
@@ -259,24 +253,32 @@ static int parse_bmp_frame(
         uint8_t *target = destination + ((size_t) row_index * (size_t) expected_width * 3U);
         size_t pixel_index;
 
-        if (pixel_format == PIXEL_FORMAT_BGR24) {
-            memcpy(target, source, (size_t) expected_width * 3U);
-            continue;
-        }
-
         for (pixel_index = 0U; pixel_index < (size_t) expected_width; ++pixel_index) {
-            const size_t source_offset = pixel_index * 3U;
-            target[source_offset + 0U] = source[source_offset + 2U];
-            target[source_offset + 1U] = source[source_offset + 1U];
-            target[source_offset + 2U] = source[source_offset + 0U];
+            const size_t source_offset = pixel_index * bytes_per_pixel_value;
+            const size_t target_offset = pixel_index * 3U;
+
+            if (pixel_format == PIXEL_FORMAT_BGR24) {
+                target[target_offset + 0U] = source[source_offset + 0U];
+                target[target_offset + 1U] = source[source_offset + 1U];
+                target[target_offset + 2U] = source[source_offset + 2U];
+            } else {
+                target[target_offset + 0U] = source[source_offset + 2U];
+                target[target_offset + 1U] = source[source_offset + 1U];
+                target[target_offset + 2U] = source[source_offset + 0U];
+            }
         }
     }
 
     return CAMERA_CAPTURE_OK;
 }
 
-static int capture_with_pi_command(camera_capture_t *capture, uint8_t *destination, size_t capacity) {
-    char temp_path[] = "/tmp/mirror-frame-XXXXXX";
+static int capture_with_pi_command(
+    camera_capture_t *capture,
+    uint8_t *destination,
+    size_t capacity
+) {
+    char temp_template[] = "/tmp/mirror-frame-XXXXXX";
+    char temp_path[sizeof(temp_template) + 4U];
     int temp_fd;
     pid_t child_pid;
     int wait_status;
@@ -286,11 +288,21 @@ static int capture_with_pi_command(camera_capture_t *capture, uint8_t *destinati
     size_t bmp_size;
     int parse_result;
 
-    temp_fd = mkstemp(temp_path);
+    temp_fd = mkstemp(temp_template);
     if (temp_fd < 0) {
         return errno;
     }
     close(temp_fd);
+
+    if (snprintf(temp_path, sizeof(temp_path), "%s.bmp", temp_template) >= (int) sizeof(temp_path)) {
+        unlink(temp_template);
+        return ENAMETOOLONG;
+    }
+    if (rename(temp_template, temp_path) != 0) {
+        const int error_code = errno;
+        unlink(temp_template);
+        return error_code;
+    }
 
     child_pid = fork();
     if (child_pid < 0) {
@@ -320,7 +332,7 @@ static int capture_with_pi_command(camera_capture_t *capture, uint8_t *destinati
 
         snprintf(width_arg, sizeof(width_arg), "%u", capture->config.width);
         snprintf(height_arg, sizeof(height_arg), "%u", capture->config.height);
-        snprintf(timeout_arg, sizeof(timeout_arg), "%d", 250);
+        snprintf(timeout_arg, sizeof(timeout_arg), "%d", 500);
         execv(capture->backend_command, argv);
         _exit(127);
     }
@@ -339,7 +351,6 @@ static int capture_with_pi_command(camera_capture_t *capture, uint8_t *destinati
         unlink(temp_path);
         return errno;
     }
-
     if (fseek(bmp_file, 0L, SEEK_END) != 0) {
         fclose(bmp_file);
         unlink(temp_path);
@@ -385,533 +396,64 @@ static int capture_with_pi_command(camera_capture_t *capture, uint8_t *destinati
     free(bmp_bytes);
     return parse_result;
 }
-
-static uint32_t requested_fourcc(pixel_format_t pixel_format) {
-    switch (pixel_format) {
-        case PIXEL_FORMAT_BGR24:
-            return V4L2_PIX_FMT_BGR24;
-        case PIXEL_FORMAT_RGB24:
-            return V4L2_PIX_FMT_RGB24;
-        default:
-            return 0U;
-    }
-}
-
-static uint32_t alternate_fourcc(pixel_format_t pixel_format) {
-    switch (pixel_format) {
-        case PIXEL_FORMAT_BGR24:
-            return V4L2_PIX_FMT_RGB24;
-        case PIXEL_FORMAT_RGB24:
-            return V4L2_PIX_FMT_BGR24;
-        default:
-            return 0U;
-    }
-}
-
-static size_t backend_frame_size(uint32_t fourcc, uint32_t width, uint32_t height) {
-    switch (fourcc) {
-        case V4L2_PIX_FMT_YUYV:
-            return (size_t) width * (size_t) height * 2U;
-        case V4L2_PIX_FMT_RGB24:
-        case V4L2_PIX_FMT_BGR24:
-            return (size_t) width * (size_t) height * 3U;
-        default:
-            return 0U;
-    }
-}
-
-static uint32_t active_capabilities(const struct v4l2_capability *capability) {
-    if ((capability->capabilities & V4L2_CAP_DEVICE_CAPS) != 0U) {
-        return capability->device_caps;
-    }
-    return capability->capabilities;
-}
-
-static uint8_t clamp_channel(int value) {
-    if (value < 0) {
-        return 0U;
-    }
-    if (value > 255) {
-        return 255U;
-    }
-    return (uint8_t) value;
-}
-
-static void convert_yuyv_to_rgb24(const uint8_t *source, uint8_t *destination, uint32_t width, uint32_t height, bool bgr_output) {
-    size_t pixel_index;
-    const size_t pixel_count = (size_t) width * (size_t) height;
-
-    for (pixel_index = 0; pixel_index + 1U < pixel_count; pixel_index += 2U) {
-        const size_t source_index = pixel_index * 2U;
-        const int y0 = (int) source[source_index + 0U];
-        const int u = (int) source[source_index + 1U] - 128;
-        const int y1 = (int) source[source_index + 2U];
-        const int v = (int) source[source_index + 3U] - 128;
-        const int c0 = y0 - 16;
-        const int c1 = y1 - 16;
-        const int d = u;
-        const int e = v;
-        int red;
-        int green;
-        int blue;
-        size_t destination_index;
-
-        red = (298 * c0 + 409 * e + 128) >> 8;
-        green = (298 * c0 - 100 * d - 208 * e + 128) >> 8;
-        blue = (298 * c0 + 516 * d + 128) >> 8;
-        destination_index = pixel_index * 3U;
-        if (bgr_output) {
-            destination[destination_index + 0U] = clamp_channel(blue);
-            destination[destination_index + 1U] = clamp_channel(green);
-            destination[destination_index + 2U] = clamp_channel(red);
-        } else {
-            destination[destination_index + 0U] = clamp_channel(red);
-            destination[destination_index + 1U] = clamp_channel(green);
-            destination[destination_index + 2U] = clamp_channel(blue);
-        }
-
-        red = (298 * c1 + 409 * e + 128) >> 8;
-        green = (298 * c1 - 100 * d - 208 * e + 128) >> 8;
-        blue = (298 * c1 + 516 * d + 128) >> 8;
-        destination_index += 3U;
-        if (bgr_output) {
-            destination[destination_index + 0U] = clamp_channel(blue);
-            destination[destination_index + 1U] = clamp_channel(green);
-            destination[destination_index + 2U] = clamp_channel(red);
-        } else {
-            destination[destination_index + 0U] = clamp_channel(red);
-            destination[destination_index + 1U] = clamp_channel(green);
-            destination[destination_index + 2U] = clamp_channel(blue);
-        }
-    }
-}
-
-static void swap_rgb_channels(const uint8_t *source, uint8_t *destination, size_t pixel_count) {
-    size_t pixel_index;
-
-    for (pixel_index = 0; pixel_index < pixel_count; ++pixel_index) {
-        const size_t offset = pixel_index * 3U;
-        destination[offset + 0U] = source[offset + 2U];
-        destination[offset + 1U] = source[offset + 1U];
-        destination[offset + 2U] = source[offset + 0U];
-    }
-}
+#endif
 
 static int open_backend(camera_capture_t *capture) {
-    struct v4l2_capability capability;
-    uint32_t capabilities;
-    uint32_t buffer_type;
-    const uint32_t desired_fourcc = requested_fourcc(capture->config.pixel_format);
-    const uint32_t fallback_fourcc = alternate_fourcc(capture->config.pixel_format);
-    const uint32_t candidates[3] = {desired_fourcc, fallback_fourcc, V4L2_PIX_FMT_YUYV};
-    size_t index;
-    int device_fd;
+#if defined(__linux__)
     char resolved_command[sizeof(capture->backend_command)];
 
-    if (capture->backend_fd >= 0) {
+    if (capture->backend_mode != CAMERA_BACKEND_NONE) {
         return CAMERA_CAPTURE_OK;
     }
-    if (desired_fourcc == 0U) {
+    if (
+        capture->config.pixel_format != PIXEL_FORMAT_BGR24
+        && capture->config.pixel_format != PIXEL_FORMAT_RGB24
+    ) {
         return CAMERA_CAPTURE_ERR_UNSUPPORTED;
     }
 
-    if (find_command_on_path("rpicam-still", resolved_command, sizeof(resolved_command))
-        || find_command_on_path("libcamera-still", resolved_command, sizeof(resolved_command))) {
-        capture->backend_frame_size_bytes = frame_byte_capacity(capture);
-        capture->backend_frame_buffer = malloc(capture->backend_frame_size_bytes);
-        if (capture->backend_frame_buffer == NULL) {
-            return CAMERA_CAPTURE_ERR_ALLOC;
-        }
-        strncpy(capture->backend_command, resolved_command, sizeof(capture->backend_command) - 1U);
-        capture->backend_command[sizeof(capture->backend_command) - 1U] = '\0';
-        capture->backend_mode = CAMERA_BACKEND_PI_CLI;
-        capture->backend_fourcc = capture->config.pixel_format == PIXEL_FORMAT_RGB24
-            ? V4L2_PIX_FMT_RGB24
-            : V4L2_PIX_FMT_BGR24;
-        return CAMERA_CAPTURE_OK;
-    }
-
-    device_fd = open(camera_device_path(), O_RDWR | O_NONBLOCK);
-    if (device_fd < 0) {
-        return errno;
-    }
-
-    memset(&capability, 0, sizeof(capability));
-    if (ioctl(device_fd, VIDIOC_QUERYCAP, &capability) < 0) {
-        const int error_code = errno;
-        close(device_fd);
-        return error_code;
-    }
-    capabilities = active_capabilities(&capability);
-    if ((capabilities & V4L2_CAP_VIDEO_CAPTURE) != 0U) {
-        buffer_type = V4L2_BUF_TYPE_VIDEO_CAPTURE;
-    } else if ((capabilities & V4L2_CAP_VIDEO_CAPTURE_MPLANE) != 0U) {
-        buffer_type = V4L2_BUF_TYPE_VIDEO_CAPTURE_MPLANE;
-    } else {
-        close(device_fd);
+    if (
+        !find_command_on_path("rpicam-still", resolved_command, sizeof(resolved_command))
+        && !find_command_on_path("libcamera-still", resolved_command, sizeof(resolved_command))
+    ) {
         return CAMERA_CAPTURE_ERR_UNSUPPORTED;
     }
 
-    for (index = 0U; index < 3U; ++index) {
-        struct v4l2_format format;
-        size_t computed_size;
-
-        memset(&format, 0, sizeof(format));
-        format.type = buffer_type;
-        if (buffer_type == V4L2_BUF_TYPE_VIDEO_CAPTURE_MPLANE) {
-            format.fmt.pix_mp.width = capture->config.width;
-            format.fmt.pix_mp.height = capture->config.height;
-            format.fmt.pix_mp.field = V4L2_FIELD_NONE;
-            format.fmt.pix_mp.pixelformat = candidates[index];
-            format.fmt.pix_mp.num_planes = 1U;
-        } else {
-            format.fmt.pix.width = capture->config.width;
-            format.fmt.pix.height = capture->config.height;
-            format.fmt.pix.field = V4L2_FIELD_NONE;
-            format.fmt.pix.pixelformat = candidates[index];
-        }
-        if (candidates[index] == 0U) {
-            continue;
-        }
-        if (ioctl(device_fd, VIDIOC_S_FMT, &format) < 0) {
-            continue;
-        }
-        if (buffer_type == V4L2_BUF_TYPE_VIDEO_CAPTURE_MPLANE) {
-            if (
-                format.fmt.pix_mp.width != capture->config.width
-                || format.fmt.pix_mp.height != capture->config.height
-            ) {
-                continue;
-            }
-            if (format.fmt.pix_mp.pixelformat != candidates[index]) {
-                continue;
-            }
-            computed_size = backend_frame_size(
-                format.fmt.pix_mp.pixelformat,
-                capture->config.width,
-                capture->config.height
-            );
-            capture->backend_frame_size_bytes = format.fmt.pix_mp.plane_fmt[0].sizeimage;
-        } else {
-            if (
-                format.fmt.pix.width != capture->config.width
-                || format.fmt.pix.height != capture->config.height
-            ) {
-                continue;
-            }
-            if (format.fmt.pix.pixelformat != candidates[index]) {
-                continue;
-            }
-            computed_size = backend_frame_size(
-                format.fmt.pix.pixelformat,
-                capture->config.width,
-                capture->config.height
-            );
-            capture->backend_frame_size_bytes = format.fmt.pix.sizeimage;
-        }
-
-        if (computed_size == 0U) {
-            close(device_fd);
-            return CAMERA_CAPTURE_ERR_UNSUPPORTED;
-        }
-        if (capture->backend_frame_size_bytes == 0U) {
-            capture->backend_frame_size_bytes = computed_size;
-        }
-
-        capture->backend_frame_buffer = malloc(capture->backend_frame_size_bytes);
-        if (capture->backend_frame_buffer == NULL) {
-            close(device_fd);
-            return CAMERA_CAPTURE_ERR_ALLOC;
-        }
-
-        if ((capabilities & V4L2_CAP_STREAMING) != 0U) {
-            struct v4l2_requestbuffers request;
-            size_t buffer_index;
-
-            memset(&request, 0, sizeof(request));
-            request.count = CAMERA_STREAM_BUFFER_COUNT;
-            request.type = buffer_type;
-            request.memory = V4L2_MEMORY_MMAP;
-            if (ioctl(device_fd, VIDIOC_REQBUFS, &request) == 0 && request.count > 0U) {
-                const size_t stream_count = request.count < CAMERA_STREAM_BUFFER_COUNT
-                    ? (size_t) request.count
-                    : CAMERA_STREAM_BUFFER_COUNT;
-
-                for (buffer_index = 0U; buffer_index < stream_count; ++buffer_index) {
-                    struct v4l2_buffer buffer;
-                    struct v4l2_plane planes[VIDEO_MAX_PLANES];
-                    void *mapped_buffer;
-                    size_t buffer_length;
-                    off_t buffer_offset;
-
-                    memset(&buffer, 0, sizeof(buffer));
-                    memset(planes, 0, sizeof(planes));
-                    buffer.type = buffer_type;
-                    buffer.memory = V4L2_MEMORY_MMAP;
-                    buffer.index = (uint32_t) buffer_index;
-                    if (buffer_type == V4L2_BUF_TYPE_VIDEO_CAPTURE_MPLANE) {
-                        buffer.length = 1U;
-                        buffer.m.planes = planes;
-                    }
-                    if (ioctl(device_fd, VIDIOC_QUERYBUF, &buffer) < 0) {
-                        break;
-                    }
-                    if (buffer_type == V4L2_BUF_TYPE_VIDEO_CAPTURE_MPLANE) {
-                        buffer_length = planes[0].length;
-                        buffer_offset = (off_t) planes[0].m.mem_offset;
-                    } else {
-                        buffer_length = buffer.length;
-                        buffer_offset = (off_t) buffer.m.offset;
-                    }
-
-                    mapped_buffer = mmap(
-                        NULL,
-                        buffer_length,
-                        PROT_READ | PROT_WRITE,
-                        MAP_SHARED,
-                        device_fd,
-                        buffer_offset
-                    );
-                    if (mapped_buffer == MAP_FAILED) {
-                        break;
-                    }
-
-                    capture->backend_stream_buffers[buffer_index] = mapped_buffer;
-                    capture->backend_stream_buffer_lengths[buffer_index] = buffer_length;
-                    capture->backend_stream_buffer_count = buffer_index + 1U;
-
-                    if (ioctl(device_fd, VIDIOC_QBUF, &buffer) < 0) {
-                        break;
-                    }
-                }
-
-                if (capture->backend_stream_buffer_count > 0U) {
-                    enum v4l2_buf_type stream_type = (enum v4l2_buf_type) buffer_type;
-
-                    if (ioctl(device_fd, VIDIOC_STREAMON, &stream_type) == 0) {
-                        capture->backend_streaming = true;
-                    }
-                }
-            }
-        }
-
-        capture->backend_fd = device_fd;
-        capture->backend_mode = CAMERA_BACKEND_V4L2;
-        capture->backend_buffer_type = buffer_type;
-        capture->backend_fourcc = buffer_type == V4L2_BUF_TYPE_VIDEO_CAPTURE_MPLANE
-            ? format.fmt.pix_mp.pixelformat
-            : format.fmt.pix.pixelformat;
-        return CAMERA_CAPTURE_OK;
-    }
-
-    close(device_fd);
+    strncpy(capture->backend_command, resolved_command, sizeof(capture->backend_command) - 1U);
+    capture->backend_command[sizeof(capture->backend_command) - 1U] = '\0';
+    capture->backend_mode = CAMERA_BACKEND_PI_CLI;
+    capture->backend_frame_size_bytes = frame_byte_capacity(capture);
+    capture->backend_fourcc = 0U;
+    return CAMERA_CAPTURE_OK;
+#else
+    (void) capture;
     return CAMERA_CAPTURE_ERR_UNSUPPORTED;
+#endif
 }
 
 static void close_backend(camera_capture_t *capture) {
-    if (capture->backend_mode == CAMERA_BACKEND_PI_CLI) {
-        capture->backend_command[0] = '\0';
-    }
-    if (capture->backend_fd >= 0 && capture->backend_streaming) {
-        enum v4l2_buf_type stream_type = (enum v4l2_buf_type) capture->backend_buffer_type;
-        ioctl(capture->backend_fd, VIDIOC_STREAMOFF, &stream_type);
-    }
-    while (capture->backend_stream_buffer_count > 0U) {
-        const size_t buffer_index = capture->backend_stream_buffer_count - 1U;
-        if (capture->backend_stream_buffers[buffer_index] != NULL) {
-            munmap(
-                capture->backend_stream_buffers[buffer_index],
-                capture->backend_stream_buffer_lengths[buffer_index]
-            );
-            capture->backend_stream_buffers[buffer_index] = NULL;
-            capture->backend_stream_buffer_lengths[buffer_index] = 0U;
-        }
-        capture->backend_stream_buffer_count = buffer_index;
-    }
-    capture->backend_streaming = false;
-    if (capture->backend_fd >= 0) {
-        close(capture->backend_fd);
-        capture->backend_fd = -1;
-    }
+    capture->backend_mode = CAMERA_BACKEND_NONE;
+    capture->backend_command[0] = '\0';
+    capture->backend_fd = -1;
+    capture->backend_buffer_type = 0U;
+    capture->backend_fourcc = 0U;
+    capture->backend_frame_size_bytes = 0U;
     free(capture->backend_frame_buffer);
     capture->backend_frame_buffer = NULL;
-    capture->backend_mode = CAMERA_BACKEND_NONE;
-    capture->backend_buffer_type = 0U;
-    capture->backend_frame_size_bytes = 0U;
-    capture->backend_fourcc = 0U;
+    capture->backend_streaming = false;
+    capture->backend_stream_buffer_count = 0U;
 }
 
-static int wait_for_frame(camera_capture_t *capture) {
-    while (!atomic_load(&capture->stop_requested)) {
-        fd_set read_fds;
-        struct timeval timeout;
-        int select_result;
-
-        FD_ZERO(&read_fds);
-        FD_SET(capture->backend_fd, &read_fds);
-        timeout.tv_sec = 0;
-        timeout.tv_usec = CAMERA_WAIT_TIMEOUT_US;
-
-        select_result = select(capture->backend_fd + 1, &read_fds, NULL, NULL, &timeout);
-        if (select_result > 0) {
-            return CAMERA_CAPTURE_OK;
-        }
-        if (select_result == 0) {
-            continue;
-        }
-        if (errno == EINTR) {
-            continue;
-        }
-        return errno;
-    }
-
-    return CAMERA_CAPTURE_ERR_EMPTY;
-}
-
-static int read_device_bytes(camera_capture_t *capture, uint8_t *destination, size_t capacity) {
-    size_t bytes_read = 0U;
-
-    while (bytes_read < capacity && !atomic_load(&capture->stop_requested)) {
-        const ssize_t result = read(capture->backend_fd, destination + bytes_read, capacity - bytes_read);
-        if (result > 0) {
-            bytes_read += (size_t) result;
-            continue;
-        }
-        if (result < 0 && (errno == EAGAIN || errno == EINTR)) {
-            const int wait_result = wait_for_frame(capture);
-            if (wait_result != CAMERA_CAPTURE_OK) {
-                return wait_result;
-            }
-            continue;
-        }
-        return errno == 0 ? CAMERA_CAPTURE_ERR_EMPTY : errno;
-    }
-
-    return bytes_read == capacity ? CAMERA_CAPTURE_OK : CAMERA_CAPTURE_ERR_EMPTY;
-}
-
-static int read_stream_frame(camera_capture_t *capture) {
-    struct v4l2_buffer buffer;
-    struct v4l2_plane planes[VIDEO_MAX_PLANES];
-    int wait_result;
-
-    while (!atomic_load(&capture->stop_requested)) {
-        memset(&buffer, 0, sizeof(buffer));
-        memset(planes, 0, sizeof(planes));
-        buffer.type = capture->backend_buffer_type;
-        buffer.memory = V4L2_MEMORY_MMAP;
-        if (capture->backend_buffer_type == V4L2_BUF_TYPE_VIDEO_CAPTURE_MPLANE) {
-            buffer.length = 1U;
-            buffer.m.planes = planes;
-        }
-        if (ioctl(capture->backend_fd, VIDIOC_DQBUF, &buffer) == 0) {
-            size_t bytes_to_copy;
-            int queue_result;
-
-            if ((size_t) buffer.index >= capture->backend_stream_buffer_count) {
-                return EINVAL;
-            }
-            bytes_to_copy = capture->backend_buffer_type == V4L2_BUF_TYPE_VIDEO_CAPTURE_MPLANE
-                ? (size_t) planes[0].bytesused
-                : (size_t) buffer.bytesused;
-            if (bytes_to_copy == 0U) {
-                queue_result = ioctl(capture->backend_fd, VIDIOC_QBUF, &buffer);
-                if (queue_result < 0) {
-                    return errno;
-                }
-                continue;
-            }
-            if (bytes_to_copy > capture->backend_frame_size_bytes) {
-                bytes_to_copy = capture->backend_frame_size_bytes;
-            }
-
-            memcpy(
-                capture->backend_frame_buffer,
-                capture->backend_stream_buffers[buffer.index],
-                bytes_to_copy
-            );
-
-            queue_result = ioctl(capture->backend_fd, VIDIOC_QBUF, &buffer);
-            if (queue_result < 0) {
-                return errno;
-            }
-            return bytes_to_copy == capture->backend_frame_size_bytes
-                ? CAMERA_CAPTURE_OK
-                : CAMERA_CAPTURE_ERR_EMPTY;
-        }
-
-        if (errno != EAGAIN && errno != EINTR) {
-            return errno;
-        }
-
-        wait_result = wait_for_frame(capture);
-        if (wait_result != CAMERA_CAPTURE_OK) {
-            return wait_result;
-        }
-    }
-
-    return CAMERA_CAPTURE_ERR_EMPTY;
-}
-#endif
-
-/*
- * The Raspberry Pi capture path now uses a small V4L2 backend on Linux.
- * This keeps the public API and bounded-buffer behavior stable while giving
- * us a direct hardware smoke-test path on the Pi.
- */
-static int read_backend_frame(camera_capture_t *capture, uint8_t *destination, size_t capacity) {
+static int read_backend_frame(
+    camera_capture_t *capture,
+    uint8_t *destination,
+    size_t capacity
+) {
 #if defined(__linux__)
-    const size_t pixel_count = (size_t) capture->config.width * (size_t) capture->config.height;
-    int result;
-
-    if (capture->backend_fd < 0 || capture->backend_frame_buffer == NULL) {
-        if (capture->backend_mode != CAMERA_BACKEND_PI_CLI || capture->backend_frame_buffer == NULL) {
-            return CAMERA_CAPTURE_ERR_UNSUPPORTED;
-        }
+    if (capture->backend_mode != CAMERA_BACKEND_PI_CLI) {
+        return CAMERA_CAPTURE_ERR_UNSUPPORTED;
     }
-
-    if (capture->backend_mode == CAMERA_BACKEND_PI_CLI) {
-        result = capture_with_pi_command(capture, capture->backend_frame_buffer, capture->backend_frame_size_bytes);
-    } else if (capture->backend_streaming) {
-        result = read_stream_frame(capture);
-    } else {
-        result = read_device_bytes(
-            capture,
-            capture->backend_frame_buffer,
-            capture->backend_frame_size_bytes
-        );
-    }
-    if (result != CAMERA_CAPTURE_OK) {
-        return result;
-    }
-
-    switch (capture->backend_fourcc) {
-        case V4L2_PIX_FMT_BGR24:
-            if (capture->config.pixel_format == PIXEL_FORMAT_BGR24) {
-                memcpy(destination, capture->backend_frame_buffer, capacity);
-            } else {
-                swap_rgb_channels(capture->backend_frame_buffer, destination, pixel_count);
-            }
-            return CAMERA_CAPTURE_OK;
-        case V4L2_PIX_FMT_RGB24:
-            if (capture->config.pixel_format == PIXEL_FORMAT_RGB24) {
-                memcpy(destination, capture->backend_frame_buffer, capacity);
-            } else {
-                swap_rgb_channels(capture->backend_frame_buffer, destination, pixel_count);
-            }
-            return CAMERA_CAPTURE_OK;
-        case V4L2_PIX_FMT_YUYV:
-            convert_yuyv_to_rgb24(
-                capture->backend_frame_buffer,
-                destination,
-                capture->config.width,
-                capture->config.height,
-                capture->config.pixel_format == PIXEL_FORMAT_BGR24
-            );
-            return CAMERA_CAPTURE_OK;
-        default:
-            return CAMERA_CAPTURE_ERR_UNSUPPORTED;
-    }
+    return capture_with_pi_command(capture, destination, capacity);
 #else
     (void) capture;
     (void) destination;
@@ -920,7 +462,12 @@ static int read_backend_frame(camera_capture_t *capture, uint8_t *destination, s
 #endif
 }
 
-static void push_frame(camera_capture_t *capture, const uint8_t *data, size_t data_size, uint64_t timestamp_ns) {
+static void push_frame(
+    camera_capture_t *capture,
+    const uint8_t *data,
+    size_t data_size,
+    uint64_t timestamp_ns
+) {
     video_frame_t *slot;
 
     pthread_mutex_lock(&capture->lock);
@@ -960,11 +507,12 @@ static void *capture_thread_main(void *arg) {
 
     while (!atomic_load(&capture->stop_requested)) {
         const int result = read_backend_frame(capture, scratch, capacity);
+
         if (result != CAMERA_CAPTURE_OK) {
             if (result != CAMERA_CAPTURE_ERR_EMPTY) {
                 mark_failure(capture, result);
             }
-            sleep_us(CAMERA_WAIT_TIMEOUT_US);
+            sleep_us(100000L);
             continue;
         }
 
@@ -1014,7 +562,6 @@ int camera_capture_start(camera_capture_t *capture) {
         return CAMERA_CAPTURE_ERR_INVALID;
     }
 
-#if defined(__linux__)
     result = open_backend(capture);
     if (result != CAMERA_CAPTURE_OK) {
         pthread_mutex_lock(&capture->lock);
@@ -1025,12 +572,6 @@ int camera_capture_start(camera_capture_t *capture) {
         pthread_mutex_unlock(&capture->lock);
         return result;
     }
-#else
-    pthread_mutex_lock(&capture->lock);
-    capture->status.last_error_code = CAMERA_CAPTURE_ERR_UNSUPPORTED;
-    pthread_mutex_unlock(&capture->lock);
-    return CAMERA_CAPTURE_ERR_UNSUPPORTED;
-#endif
 
     atomic_store(&capture->stop_requested, false);
     result = pthread_create(&capture->thread, NULL, capture_thread_main, capture);
@@ -1038,9 +579,7 @@ int camera_capture_start(camera_capture_t *capture) {
         pthread_mutex_lock(&capture->lock);
         capture->status.last_error_code = result;
         pthread_mutex_unlock(&capture->lock);
-#if defined(__linux__)
         close_backend(capture);
-#endif
         return CAMERA_CAPTURE_ERR_THREAD;
     }
 
@@ -1063,9 +602,7 @@ int camera_capture_stop(camera_capture_t *capture) {
         atomic_store(&capture->thread_started, false);
     }
 
-#if defined(__linux__)
     close_backend(capture);
-#endif
 
     pthread_mutex_lock(&capture->lock);
     capture->status.running = false;
@@ -1088,7 +625,8 @@ int camera_capture_get_latest_frame(camera_capture_t *capture, video_frame_t *ou
         return CAMERA_CAPTURE_ERR_EMPTY;
     }
 
-    latest_index = (capture->write_index + capture->config.buffer_capacity - 1U) % capture->config.buffer_capacity;
+    latest_index = (capture->write_index + capture->config.buffer_capacity - 1U)
+        % capture->config.buffer_capacity;
     source = &capture->frames[latest_index];
 
     memset(out_frame, 0, sizeof(*out_frame));
