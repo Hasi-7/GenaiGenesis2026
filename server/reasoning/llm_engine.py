@@ -4,7 +4,13 @@ import time
 from typing import Protocol
 
 from dotenv import load_dotenv
+<<<<<<< HEAD
 from models.types import (
+=======
+from openai import OpenAI
+
+from server.models.types import (
+>>>>>>> 73cc6fe (pre revert)
     CognitiveStateLabel,
     LLMRequest,
     LLMResponse,
@@ -124,7 +130,7 @@ def _build_user_message(request: LLMRequest) -> str:
 
 
 if __name__ == "__main__":
-    from models.types import (
+    from server.models.types import (
         ClassifierResult,
         CognitiveState,
         FrameAnalysis,

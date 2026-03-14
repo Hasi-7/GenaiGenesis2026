@@ -7,6 +7,7 @@ from models.types import ClassifierResult
 from numpy.typing import NDArray
 from transformers import pipeline  # type: ignore[import-untyped]
 
+<<<<<<< HEAD
 
 class SpeechToneClassifierProtocol(Protocol):
     """Protocol for speech tone classification from audio."""
@@ -22,8 +23,11 @@ class SpeechToneClassifierProtocol(Protocol):
         Labels: "calm", "stressed", "monotone", "silent".
         """
         ...
+=======
+from server.models.types import ClassifierResult
+>>>>>>> 73cc6fe (pre revert)
 
-# Maps HuggingFace emotion labels → protocol labels ("calm", "stressed", "monotone", "silent")
+# Maps HuggingFace emotion labels to protocol labels.
 _EMOTION_TO_TONE: dict[str, str] = {
     "angry": "stressed",
     "disgusted": "stressed",
@@ -96,7 +100,11 @@ def _resample(
     duration = len(audio) / orig_sr
     target_length = int(duration * target_sr)
     indices = np.linspace(0, len(audio) - 1, target_length)
-    resampled: NDArray[np.float32] = np.interp(indices, np.arange(len(audio)), audio).astype(np.float32)
+    resampled: NDArray[np.float32] = np.interp(
+        indices,
+        np.arange(len(audio)),
+        audio,
+    ).astype(np.float32)
     return resampled
 
 

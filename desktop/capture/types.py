@@ -3,8 +3,14 @@ from __future__ import annotations
 from dataclasses import dataclass
 from enum import Enum
 
+try:
+    from enum import StrEnum
+except ImportError:  # pragma: no cover - Python < 3.11 compatibility.
+    class StrEnum(str, Enum):  # noqa: UP042
+        """Fallback for Python versions without enum.StrEnum."""
 
-class ClientType(str, Enum):
+
+class ClientType(StrEnum):
     """Supported capture clients."""
 
     DESKTOP = "desktop"

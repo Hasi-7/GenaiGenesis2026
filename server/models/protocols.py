@@ -5,7 +5,13 @@ from typing import Protocol
 import numpy as np
 from numpy.typing import NDArray
 
+<<<<<<< HEAD
 from models.types import (
+=======
+from .types import (
+    BlinkData,
+    ClassifierResult,
+>>>>>>> 73cc6fe (pre revert)
     CognitiveState,
     LLMResponse,
 )
