@@ -46,9 +46,13 @@ Run it directly against the Pi camera:
 ./mirror/build/mirror_capture_smoke
 ./mirror/build/mirror_capture_smoke 1280 720 8000
 ./mirror/build/mirror_capture_smoke 1280 720 8000 /home/pi/frame.bmp
+./mirror/build/mirror_capture_smoke stream 192.168.1.10
+./mirror/build/mirror_capture_smoke stream 192.168.1.10 9000 640 480 15
 ```
 
-Arguments are `width height timeout_ms [output_path]`. The smoke test prints one captured frame, saves a BMP to `captured_frame.bmp` by default, and exits with `0` on success.
+Capture arguments are `width height timeout_ms [output_path]`. The smoke test prints one captured frame, saves a BMP to `captured_frame.bmp` by default, and exits with `0` on success.
+
+Streaming arguments are `stream <server_ip> [port] [width] [height] [fps]`. This launches the continuous 15 FPS network stream test through the built `mirror_frame_streamer` binary.
 
 ## Mirror Streaming
 

@@ -18,7 +18,7 @@ from models.types import (
     PipelineConfig,
 )
 from reasoning.llm_engine import LLMEngine
-from state.state_tracker import StateTracker
+from state.state_tracker import StateTracker, StateTrackerProtocol
 from ui.desktop_ui import DesktopUI
 from vision.blink_detector import EarBlinkDetector
 from vision.eye_movement_detector import IrisGazeDetector
@@ -71,7 +71,9 @@ class PipelineController:
         self._posture_detector = MediaPipePostureDetector()
 
         # Audio
-        self._speech_classifier = SpeechToneClassifier()
+        self._speech_classifier: SpeechToneClassifier | None = None
+        if config.mic_enabled:
+            self._speech_classifier = SpeechToneClassifier()
 
         # Subscribers
         self._subscribers: list[Callable[[LLMResponse], None]] = []
@@ -215,7 +217,7 @@ class PipelineController:
                 "_tick: mic.get_latest_chunk -> %s",
                 f"{chunk.shape[0]} samples" if chunk is not None else "none",
             )
-            if chunk is not None:
+            if chunk is not None and self._speech_classifier is not None:
                 analysis.speech_tone = (
                     self._speech_classifier.classify(chunk)
                 )

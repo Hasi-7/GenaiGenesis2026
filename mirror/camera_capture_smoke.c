@@ -10,12 +10,20 @@
 #include <string.h>
 #include <time.h>
 
+#if defined(__linux__)
+#include <unistd.h>
+#endif
+
 #define CAMERA_CAPTURE_OK 0
 #define CAMERA_CAPTURE_ERR_INVALID 1
 #define CAMERA_CAPTURE_ERR_ALLOC 2
 #define CAMERA_CAPTURE_ERR_THREAD 3
 #define CAMERA_CAPTURE_ERR_UNSUPPORTED 4
 #define CAMERA_CAPTURE_ERR_EMPTY 5
+#define DEFAULT_STREAM_PORT 9000U
+#define DEFAULT_STREAM_WIDTH 640U
+#define DEFAULT_STREAM_HEIGHT 480U
+#define DEFAULT_STREAM_FPS 15U
 
 static void write_le16(FILE *file, uint16_t value) {
     fputc((int) (value & 0xffU), file);
@@ -53,6 +61,106 @@ static void sleep_ms(long milliseconds) {
     delay.tv_sec = milliseconds / 1000L;
     delay.tv_nsec = (milliseconds % 1000L) * 1000000L;
     nanosleep(&delay, NULL);
+}
+
+static void print_usage(const char *program_name) {
+    fprintf(
+        stderr,
+        "Usage:\n"
+        "  %s [width] [height] [timeout_ms] [output_path]\n"
+        "  %s stream <server_ip> [port] [width] [height] [fps]\n",
+        program_name,
+        program_name
+    );
+}
+
+static int run_stream_mode(int argc, char **argv) {
+#if defined(__linux__)
+    const char *server_host;
+    uint32_t port;
+    uint32_t width;
+    uint32_t height;
+    uint32_t fps;
+    const char *slash;
+    size_t dir_length;
+    size_t path_length;
+    char *streamer_path;
+    char port_arg[16];
+    char width_arg[16];
+    char height_arg[16];
+    char fps_arg[16];
+    char *exec_args[] = {
+        NULL,
+        NULL,
+        port_arg,
+        width_arg,
+        height_arg,
+        fps_arg,
+        NULL,
+    };
+
+    if (argc < 3) {
+        print_usage(argv[0]);
+        return 1;
+    }
+
+    server_host = argv[2];
+    port = argc > 3 ? (uint32_t) strtoul(argv[3], NULL, 10) : DEFAULT_STREAM_PORT;
+    width = argc > 4 ? (uint32_t) strtoul(argv[4], NULL, 10) : DEFAULT_STREAM_WIDTH;
+    height = argc > 5 ? (uint32_t) strtoul(argv[5], NULL, 10) : DEFAULT_STREAM_HEIGHT;
+    fps = argc > 6 ? (uint32_t) strtoul(argv[6], NULL, 10) : DEFAULT_STREAM_FPS;
+
+    slash = strrchr(argv[0], '/');
+    dir_length = slash == NULL ? 0U : (size_t) (slash - argv[0] + 1);
+    path_length = dir_length + strlen("mirror_frame_streamer") + 1U;
+    streamer_path = malloc(path_length);
+    if (streamer_path == NULL) {
+        fprintf(stderr, "Failed to allocate streamer path buffer\n");
+        return 1;
+    }
+
+    if (dir_length > 0U) {
+        memcpy(streamer_path, argv[0], dir_length);
+    }
+    memcpy(
+        streamer_path + dir_length,
+        "mirror_frame_streamer",
+        strlen("mirror_frame_streamer") + 1U
+    );
+
+    snprintf(port_arg, sizeof(port_arg), "%u", port);
+    snprintf(width_arg, sizeof(width_arg), "%u", width);
+    snprintf(height_arg, sizeof(height_arg), "%u", height);
+    snprintf(fps_arg, sizeof(fps_arg), "%u", fps);
+
+    exec_args[0] = streamer_path;
+    exec_args[1] = (char *) server_host;
+
+    printf(
+        "Launching continuous stream test to %s:%u at %ux%u %u fps\n",
+        server_host,
+        port,
+        width,
+        height,
+        fps
+    );
+    fflush(stdout);
+
+    execv(streamer_path, exec_args);
+    fprintf(
+        stderr,
+        "Failed to exec %s: %s\n",
+        streamer_path,
+        strerror(errno)
+    );
+    free(streamer_path);
+    return 1;
+#else
+    (void) argc;
+    (void) argv;
+    fprintf(stderr, "Streaming mode is only supported on Linux\n");
+    return 1;
+#endif
 }
 
 static int save_frame_as_bmp(const video_frame_t *frame, const char *output_path) {
@@ -144,6 +252,10 @@ int main(int argc, char **argv) {
     const char *output_path = argc > 4 ? argv[4] : "captured_frame.bmp";
     int elapsed_ms = 0;
     int result;
+
+    if (argc > 1 && strcmp(argv[1], "stream") == 0) {
+        return run_stream_mode(argc, argv);
+    }
 
     memset(&capture, 0, sizeof(capture));
     memset(&config, 0, sizeof(config));
