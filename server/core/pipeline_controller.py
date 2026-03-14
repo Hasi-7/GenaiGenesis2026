@@ -11,7 +11,6 @@ load_dotenv()
 import os
 
 from audio.speech_tone_classifier import SpeechToneClassifier
-from input.camera_adapter import LocalCameraAdapter, NetworkCameraAdapter
 from input.mic_adapter import LocalMicAdapter
 from input.screenshot_manager import ScreenshotManager
 from models.types import (
@@ -59,14 +58,6 @@ class PipelineController:
         self._screenshot_manager = screenshot_manager
         self._state_tracker = state_tracker
 
-        # Input
-        if config.environment.value == "mirror":
-            self._camera = NetworkCameraAdapter(
-                config.mirror_listen_host,
-                config.mirror_listen_port,
-            )
-        else:
-            self._camera = LocalCameraAdapter(config.camera_index)
         self._mic: LocalMicAdapter | None = None
         if config.mic_enabled:
             self._mic = LocalMicAdapter()

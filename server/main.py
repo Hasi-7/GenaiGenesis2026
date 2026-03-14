@@ -11,21 +11,23 @@ Or directly::
 
 from __future__ import annotations
 
+import logging
 import os
 import sys
 
-# Add the server directory to the path so all server modules are importable
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), "server"))
+# Add the server directory to the path so sibling packages are importable.
+sys.path.insert(0, os.path.dirname(__file__))
 
 from config.logging_config import setup_logging
 from core.pipeline_controller import PipelineController
-from models.types import PipelineConfig
-from openai import OpenAI
-from input.camera_adapter import LocalCameraAdapter
+from input.camera_adapter import LocalCameraAdapter, NetworkCameraAdapter
 from input.screenshot_manager import ScreenshotManager
 from models.types import PipelineConfig
+from openai import OpenAI
 from reasoning.llm_engine import LLMEngine, RateLimiter
 from state.state_tracker import LLMStateTracker, StateTracker
+
+logger = logging.getLogger(__name__)
 
 
 def main() -> None:
@@ -35,14 +37,30 @@ def main() -> None:
     config = PipelineConfig.mirror() if env == "mirror" else PipelineConfig.desktop()
 
     tracker_type = os.environ.get("STATE_TRACKER_TYPE", config.state_tracker_type)
+    api_key = os.environ.get("OPENAI_API_KEY")
+    client = OpenAI(api_key=api_key) if api_key else None
 
-    client = OpenAI()
+    if client is None:
+        logger.info("OPENAI_API_KEY not set; LLM feedback is disabled")
+        if tracker_type == "llm":
+            logger.warning(
+                "STATE_TRACKER_TYPE=llm requested without OPENAI_API_KEY; "
+                "falling back to rule-based state tracking",
+            )
+            tracker_type = "rule"
+
     engine = LLMEngine(
         client=client,
         rate_limiter=RateLimiter(cooldown_seconds=config.llm_cooldown_seconds),
     )
 
-    camera = LocalCameraAdapter(config.camera_index)
+    if env == "mirror":
+        camera = NetworkCameraAdapter(
+            config.mirror_listen_host,
+            config.mirror_listen_port,
+        )
+    else:
+        camera = LocalCameraAdapter(config.camera_index)
     screenshot_manager = ScreenshotManager(camera)
 
     state_tracker: StateTracker | LLMStateTracker

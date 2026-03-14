@@ -4,13 +4,13 @@ import cv2  # type: ignore[import-untyped]
 import numpy as np
 from numpy.typing import NDArray
 
-from input.camera_adapter import LocalCameraAdapter
+from models.protocols import CameraSource
 
 
 class ScreenshotManager:
     """Centralised frame capture shared by pipeline and state tracker."""
 
-    def __init__(self, camera: LocalCameraAdapter) -> None:
+    def __init__(self, camera: CameraSource) -> None:
         self._camera = camera
         self._bgr_frame: NDArray[np.uint8] | None = None
         self._rgb_frame: NDArray[np.uint8] | None = None

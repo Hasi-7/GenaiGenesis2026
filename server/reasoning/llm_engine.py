@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 import time
 from typing import Protocol
 
@@ -10,6 +11,8 @@ from models.types import (
     LLMResponse,
 )
 from openai import OpenAI
+
+logger = logging.getLogger(__name__)
 
 
 class ReasoningEngine(Protocol):
@@ -67,7 +70,7 @@ class LLMEngine:
 
     def __init__(
         self,
-        client: OpenAI,
+        client: OpenAI | None,
         rate_limiter: RateLimiter | None = None,
         model: str = _MODEL,
     ) -> None:
@@ -83,6 +86,10 @@ class LLMEngine:
         self, request: LLMRequest
     ) -> LLMResponse | None:
         """Call OpenAI for feedback, or None if rate limited."""
+        if self._client is None:
+            logger.debug("Skipping LLM feedback because no OpenAI client is configured")
+            return None
+
         if not self._rate_limiter.is_allowed():
             return None
 
