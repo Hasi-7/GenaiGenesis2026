@@ -20,10 +20,6 @@ class OpenCVVideoCaptureProtocol(Protocol):
     def get(self, prop_id: int) -> float: ...
 
 
-class _OpenCVTextSizeProtocol(Protocol):
-    def __iter__(self) -> object: ...
-
-
 @runtime_checkable
 class OpenCVModuleProtocol(Protocol):
     CAP_PROP_FRAME_WIDTH: int

@@ -140,8 +140,6 @@ def _overlay_panel(
     (tw, _), _ = cv2.getTextSize(fps_text, cv2.FONT_HERSHEY_SIMPLEX, 0.45, 1)
     _put(frame, fps_text, w - tw - 10, 20, _GREY, 0.45)
 
-    no_face = blink is None
-
     # ── SECTION: BLINK ─────────────────────────────────────────────────
     _put(frame, "BLINK", x, y, _GREY, 0.42)
     y += step
@@ -178,8 +176,6 @@ def _overlay_panel(
     y += step
 
     if gaze:
-        h_color = _label_color("center") if abs(gaze.horizontal_ratio) < 0.2 else _ORANGE
-        v_color = _label_color("center") if abs(gaze.vertical_ratio) < 0.2 else _ORANGE
         _put(frame, f"H {gaze.horizontal_ratio:+.2f}  V {gaze.vertical_ratio:+.2f}", x, y, _WHITE, 0.44)
         y += step
         _put(frame, f"direction: {gaze.direction}", x, y, _WHITE, 0.44)
@@ -249,7 +245,7 @@ def run() -> None:
     try:
         while True:
             ret, bgr = cap.read()
-            if not ret:
+            if not ret or bgr is None:
                 break
 
             frame_count += 1

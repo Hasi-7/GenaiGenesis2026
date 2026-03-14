@@ -1,6 +1,9 @@
 from __future__ import annotations
 
+import importlib
+from collections.abc import Sequence
 from typing import Protocol
+from typing import runtime_checkable
 
 import numpy as np
 from config.third_party import AudioClassificationPipelineProtocol, load_transformers_pipeline
@@ -37,6 +40,27 @@ _MODEL_SAMPLE_RATE = 16_000
 _SILENCE_RMS_THRESHOLD = 0.001
 
 
+@runtime_checkable
+class _SoundDeviceModuleProtocol(Protocol):
+    def rec(
+        self,
+        frames: int,
+        *,
+        samplerate: int,
+        channels: int,
+        dtype: str,
+    ) -> NDArray[np.float32]: ...
+
+    def wait(self) -> None: ...
+
+
+def _load_sounddevice() -> _SoundDeviceModuleProtocol:
+    module = importlib.import_module("sounddevice")
+    if not isinstance(module, _SoundDeviceModuleProtocol):
+        raise TypeError("sounddevice module does not match expected protocol")
+    return module
+
+
 class SpeechToneClassifier:
     """Classifies speech tone from audio using Hatman/audio-emotion-detection."""
 
@@ -56,8 +80,8 @@ class SpeechToneClassifier:
         Labels: "calm", "stressed", "monotone", "silent".
         """
 
-        # Flatten to 1D — mic adapter delivers shape (N, channels)
-        audio_chunk = audio_chunk.squeeze()
+        # Collapse multi-channel input to mono before feature extraction.
+        audio_chunk = _to_mono(audio_chunk)
 
         if _is_silent(audio_chunk):
             return ClassifierResult(label="silent", confidence=1.0)
@@ -66,7 +90,7 @@ class SpeechToneClassifier:
         if sample_rate != _MODEL_SAMPLE_RATE:
             audio_chunk = _resample(audio_chunk, sample_rate, _MODEL_SAMPLE_RATE)
 
-        results: list[dict[str, object]] = self._pipe(
+        results: Sequence[dict[str, object]] = self._pipe(
             {"raw": audio_chunk, "sampling_rate": _MODEL_SAMPLE_RATE},
             top_k=len(_EMOTION_TO_TONE),
         )
@@ -122,20 +146,23 @@ def _resample(
 
 
 if __name__ == "__main__":
-    import sounddevice as sd
-
     SAMPLE_RATE = 16_000
     DURATION_SECONDS = 3
 
+    sd = _load_sounddevice()
+
     print(f"Recording {DURATION_SECONDS}s of audio at {SAMPLE_RATE} Hz...")
-    audio_data: NDArray[np.float32] = sd.rec(
-        int(DURATION_SECONDS * SAMPLE_RATE),
-        samplerate=SAMPLE_RATE,
-        channels=1,
-        dtype="float32",
+    audio_data = np.asarray(
+        sd.rec(
+            int(DURATION_SECONDS * SAMPLE_RATE),
+            samplerate=SAMPLE_RATE,
+            channels=1,
+            dtype="float32",
+        ),
+        dtype=np.float32,
     )
     sd.wait()
-    audio_data = audio_data.squeeze()
+    audio_data = _to_mono(audio_data)
     print(f"Recorded {len(audio_data)} samples.")
 
     print("Loading model (first run downloads ~1.2 GB)...")

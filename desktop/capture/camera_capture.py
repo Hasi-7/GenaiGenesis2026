@@ -72,7 +72,7 @@ class _OpenCVCameraDevice:
 
     def read(self) -> tuple[bool, CameraFrame | None]:
         ok, frame = self._capture.read()
-        if not ok:
+        if not ok or frame is None:
             return False, None
         return True, _BufferedCameraFrame(
             width=int(frame.shape[1]),
