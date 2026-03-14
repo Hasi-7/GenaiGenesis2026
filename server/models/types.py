@@ -127,6 +127,7 @@ class PipelineConfig:
 
     environment: Environment
     camera_index: int = 0
+    state_tracker_type: str = "rule"  # "rule" or "llm"
     mic_enabled: bool = True
     target_fps: int = 15
     smoothing_window_seconds: float = 10.0

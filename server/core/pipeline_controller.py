@@ -5,20 +5,22 @@ import time
 from collections.abc import Callable
 from typing import Protocol
 
-import cv2  # type: ignore[import-untyped]
-import numpy as np
+from dotenv import load_dotenv
+load_dotenv()
+
+import os
+
 from audio.speech_tone_classifier import SpeechToneClassifier
-from input.camera_adapter import LocalCameraAdapter
 from input.mic_adapter import LocalMicAdapter
+from input.screenshot_manager import ScreenshotManager
 from models.types import (
     FrameAnalysis,
     LLMRequest,
     LLMResponse,
     PipelineConfig,
 )
-from numpy.typing import NDArray
 from reasoning.llm_engine import LLMEngine
-from state.state_tracker import StateTracker
+from state.state_tracker import StateTrackerProtocol
 from vision.blink_detector import EarBlinkDetector
 from vision.eye_movement_detector import IrisGazeDetector
 from vision.face_landmarks import FaceLandmarkerTask
@@ -48,12 +50,15 @@ class PipelineController:
         self,
         config: PipelineConfig,
         llm_engine: LLMEngine,
+        screenshot_manager: ScreenshotManager,
+        state_tracker: StateTrackerProtocol,
     ) -> None:
         self._config = config
         self._llm_engine = llm_engine
+        self._screenshot_manager = screenshot_manager
+        self._state_tracker = state_tracker
 
         # Input
-        self._camera = LocalCameraAdapter(config.camera_index)
         self._mic: LocalMicAdapter | None = None
         if config.mic_enabled:
             self._mic = LocalMicAdapter()
@@ -70,11 +75,6 @@ class PipelineController:
 
         # Audio
         self._speech_classifier = SpeechToneClassifier()
-
-        # State
-        self._state_tracker = StateTracker(
-            window_seconds=config.smoothing_window_seconds,
-        )
 
         # Subscribers
         self._subscribers: list[Callable[[LLMResponse], None]] = []
@@ -95,7 +95,7 @@ class PipelineController:
 
     def run(self) -> None:
         """Run the main pipeline loop. Blocks until stopped."""
-        if not self._camera.is_opened():
+        if not self._screenshot_manager.is_opened():
             logger.error("Camera failed to open")
             return
 
@@ -121,8 +121,9 @@ class PipelineController:
             self._cleanup()
 
     def _tick(self) -> None:
-        # 1. Read frame
-        bgr_frame = self._camera.read_frame()
+        # 1. Read frame via screenshot manager
+        self._screenshot_manager.tick()
+        bgr_frame = self._screenshot_manager.bgr_frame
         if bgr_frame is None:
             return
 
@@ -132,10 +133,9 @@ class PipelineController:
             bgr_frame.shape[0],
         )
 
-        rgb_frame = np.asarray(
-            cv2.cvtColor(bgr_frame, cv2.COLOR_BGR2RGB),
-            dtype=np.uint8,
-        )
+        rgb_frame = self._screenshot_manager.rgb_frame
+        if rgb_frame is None:
+            return
         logger.debug("_tick: cvtColor BGR->RGB done")
 
         now = time.time()
@@ -241,7 +241,7 @@ class PipelineController:
                 transition.previous_state.label.value,
                 transition.new_state.label.value,
             )
-            jpeg_bytes = self._encode_jpeg(bgr_frame)
+            jpeg_bytes = self._screenshot_manager.encode_jpeg()
             logger.debug(
                 "_tick: encode_jpeg -> %d bytes", len(jpeg_bytes)
             )
@@ -276,14 +276,6 @@ class PipelineController:
                 analysis,
             )
 
-    def _encode_jpeg(
-        self, bgr_frame: NDArray[np.uint8]
-    ) -> bytes:
-        ok, buf = cv2.imencode(".jpg", bgr_frame)
-        if not ok:
-            return b""
-        return bytes(buf)
-
     def _notify_subscribers(self, response: LLMResponse) -> None:
         for callback in self._subscribers:
             try:
@@ -294,7 +286,7 @@ class PipelineController:
     def _cleanup(self) -> None:
         if self._mic is not None:
             self._mic.stop()
-        self._camera.release()
+        self._screenshot_manager.release()
         self._face_detector.close()
         self._posture_detector.close()
         if self._renderer is not None:
@@ -303,7 +295,9 @@ class PipelineController:
 
 if __name__ == "__main__":
     from openai import OpenAI
+    from input.camera_adapter import LocalCameraAdapter
     from reasoning.llm_engine import RateLimiter
+    from state.state_tracker import StateTracker
 
     from config.logging_config import setup_logging
 
@@ -318,5 +312,14 @@ if __name__ == "__main__":
         ),
     )
 
-    controller = PipelineController(config=config, llm_engine=engine)
+    camera = LocalCameraAdapter(config.camera_index)
+    screenshots = ScreenshotManager(camera)
+    tracker = StateTracker(window_seconds=config.smoothing_window_seconds)
+
+    controller = PipelineController(
+        config=config,
+        llm_engine=engine,
+        screenshot_manager=screenshots,
+        state_tracker=tracker,
+    )
     controller.run()

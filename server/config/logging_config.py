@@ -29,21 +29,21 @@ def setup_logging() -> None:
 
     # --- File handler: every log from every logger ---
     all_handler = logging.FileHandler(
-        os.path.join(LOG_DIR, "all_logs.log"),
+        os.path.join(LOG_DIR, "all_logs.log"), mode="w",
     )
     all_handler.setLevel(logging.DEBUG)
     all_handler.setFormatter(formatter)
 
     # --- File handler: project logs only (DEBUG+) ---
     project_file_handler = logging.FileHandler(
-        os.path.join(LOG_DIR, "project_logs.log"),
+        os.path.join(LOG_DIR, "project_logs.log"), mode="w",
     )
     project_file_handler.setLevel(logging.DEBUG)
     project_file_handler.setFormatter(formatter)
 
     # --- File handler: project INFO logs only ---
     info_handler = logging.FileHandler(
-        os.path.join(LOG_DIR, "info_logs.log"),
+        os.path.join(LOG_DIR, "info_logs.log"), mode="w",
     )
     info_handler.setLevel(logging.INFO)
     info_handler.addFilter(_InfoFilter())

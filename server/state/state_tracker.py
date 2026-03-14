@@ -1,9 +1,12 @@
 from __future__ import annotations
 
+import base64
+import json
+import logging
 import time
 from collections import deque
 from collections.abc import Sequence
-from typing import Protocol
+from typing import TYPE_CHECKING, Protocol
 
 from models.types import (
     ClassifierResult,
@@ -12,6 +15,12 @@ from models.types import (
     FrameAnalysis,
     StateTransition,
 )
+
+if TYPE_CHECKING:
+    from input.screenshot_manager import ScreenshotManager
+    from openai import OpenAI
+
+logger = logging.getLogger(__name__)
 
 
 class StateTrackerProtocol(Protocol):
@@ -187,6 +196,242 @@ class StateTracker:
         cutoff = time.time() - self._window_seconds
         while self._frames and self._frames[0].timestamp < cutoff:
             self._frames.popleft()
+
+
+_LLM_TRACKER_SYSTEM_PROMPT = """\
+You are a cognitive state analyst. You receive a webcam image of the user \
+alongside sensor data. Your job is to determine if the user's cognitive \
+state has meaningfully changed or if they need assistance.
+
+Analyze the image and data, then respond in exactly this JSON format:
+{"transition": true/false, "new_state": "focused|fatigued|stressed|distracted", "confidence": 0.0-1.0, "reasoning": "brief explanation"}
+
+Consider:
+- Visual cues: facial expression, posture, eye openness, tension
+- Sensor signals provided
+- Whether the user appears stuck or has been in the same state too long
+- Whether they show signs of stress or fatigue not captured by sensors\
+"""
+
+_LLM_TRACKER_MODEL = "gpt-4.1-mini"
+_LLM_TRACKER_COOLDOWN = 10.0
+_LLM_TRACKER_CHECK_INTERVAL = 30.0
+
+_STATE_FROM_STRING: dict[str, CognitiveStateLabel] = {
+    "focused": CognitiveStateLabel.FOCUSED,
+    "fatigued": CognitiveStateLabel.FATIGUED,
+    "stressed": CognitiveStateLabel.STRESSED,
+    "distracted": CognitiveStateLabel.DISTRACTED,
+}
+
+
+class LLMStateTracker:
+    """State tracker that uses OpenAI vision for transition detection."""
+
+    def __init__(
+        self,
+        client: OpenAI,
+        screenshot_manager: ScreenshotManager,
+        window_seconds: float = _DEFAULT_WINDOW_SECONDS,
+        cooldown_seconds: float = _LLM_TRACKER_COOLDOWN,
+        check_interval_seconds: float = _LLM_TRACKER_CHECK_INTERVAL,
+        model: str = _LLM_TRACKER_MODEL,
+    ) -> None:
+        self._client = client
+        self._screenshot_manager = screenshot_manager
+        self._window_seconds = window_seconds
+        self._cooldown_seconds = cooldown_seconds
+        self._check_interval_seconds = check_interval_seconds
+        self._model = model
+
+        self._frames: deque[FrameAnalysis] = deque()
+        self._last_transition_time: float = 0.0
+        self._last_check_time: float = 0.0
+        self._last_state: CognitiveState | None = None
+
+    def add_frame(self, analysis: FrameAnalysis) -> None:
+        self._frames.append(analysis)
+        self._prune()
+
+    def get_current_state(self) -> CognitiveState:
+        signals = _collect_signals(self._frames)
+        label, confidence = _weighted_vote(signals)
+        state = CognitiveState(
+            label=label,
+            confidence=confidence,
+            contributing_signals=_to_contributing(signals),
+            timestamp=time.time(),
+        )
+        self._last_state = state
+        return state
+
+    def detect_transition(self) -> StateTransition | None:
+        if len(self._frames) == 0:
+            return None
+
+        now = time.time()
+        if now - self._last_transition_time < self._cooldown_seconds:
+            return None
+
+        # Only call the LLM periodically or when local signals shift
+        current = self.get_current_state()
+        state_changed = (
+            self._last_state is not None
+            and current.label != self._last_state.label
+        )
+        interval_elapsed = (
+            now - self._last_check_time >= self._check_interval_seconds
+        )
+
+        if not state_changed and not interval_elapsed:
+            return None
+
+        jpeg_bytes = self._screenshot_manager.encode_jpeg()
+        if not jpeg_bytes:
+            return None
+
+        self._last_check_time = now
+
+        reason = "state change" if state_changed else "interval check"
+        logger.info(
+            "LLMStateTracker: starting detection (%s), "
+            "current=%s confidence=%.0f%%",
+            reason,
+            current.label.value,
+            current.confidence * 100,
+        )
+
+        transition = self._query_llm(jpeg_bytes, current)
+        if transition is not None:
+            self._last_transition_time = now
+            self._last_state = transition.new_state
+            logger.info(
+                "LLMStateTracker: transition detected %s -> %s "
+                "(confidence=%.0f%%)",
+                transition.previous_state.label.value,
+                transition.new_state.label.value,
+                transition.new_state.confidence * 100,
+            )
+        else:
+            logger.info("LLMStateTracker: no transition detected")
+        return transition
+
+    def get_recent_analyses(
+        self, seconds: float = 5.0
+    ) -> list[FrameAnalysis]:
+        cutoff = time.time() - seconds
+        return [f for f in self._frames if f.timestamp >= cutoff]
+
+    def _prune(self) -> None:
+        cutoff = time.time() - self._window_seconds
+        while self._frames and self._frames[0].timestamp < cutoff:
+            self._frames.popleft()
+
+    def _query_llm(
+        self,
+        jpeg_bytes: bytes,
+        current: CognitiveState,
+    ) -> StateTransition | None:
+        context = self._build_context(current)
+        b64 = base64.b64encode(jpeg_bytes).decode()
+
+        try:
+            completion = self._client.chat.completions.create(
+                model=self._model,
+                messages=[
+                    {"role": "system", "content": _LLM_TRACKER_SYSTEM_PROMPT},
+                    {
+                        "role": "user",
+                        "content": [
+                            {
+                                "type": "image_url",
+                                "image_url": {
+                                    "url": f"data:image/jpeg;base64,{b64}",
+                                    "detail": "low",
+                                },
+                            },
+                            {"type": "text", "text": context},
+                        ],
+                    },
+                ],
+                max_tokens=200,
+                temperature=0.3,
+            )
+        except Exception:
+            logger.exception("LLMStateTracker: OpenAI call failed")
+            return None
+
+        raw = (completion.choices[0].message.content or "").strip()
+        return self._parse_response(raw, current)
+
+    def _build_context(self, current: CognitiveState) -> str:
+        recent = self.get_recent_analyses(5.0)
+        lines = [
+            f"Current state: {current.label.value} "
+            f"(confidence: {current.confidence:.0%})",
+            f"Time since last transition: "
+            f"{time.time() - self._last_transition_time:.0f}s",
+        ]
+        if self._last_state is not None:
+            lines.append(
+                f"Previous state: {self._last_state.label.value}"
+            )
+
+        # Summarise recent signals
+        signals = _collect_signals(recent)
+        if signals:
+            sig_summary = ", ".join(
+                f"{s.label} ({s.confidence:.0%})" for s in signals[:8]
+            )
+            lines.append(f"Recent signals: {sig_summary}")
+
+        # Blink rate average
+        blink_frames = [f for f in recent if f.blink is not None]
+        if blink_frames:
+            avg_bpm = sum(
+                f.blink.blinks_per_minute  # type: ignore[union-attr]
+                for f in blink_frames
+            ) / len(blink_frames)
+            lines.append(f"Avg blink rate: {avg_bpm:.1f} bpm")
+
+        return "\n".join(lines)
+
+    def _parse_response(
+        self,
+        raw: str,
+        current: CognitiveState,
+    ) -> StateTransition | None:
+        try:
+            data = json.loads(raw)
+        except json.JSONDecodeError:
+            logger.warning(
+                "LLMStateTracker: failed to parse JSON: %s", raw
+            )
+            return None
+
+        if not data.get("transition", False):
+            return None
+
+        new_label_str = data.get("new_state", "").lower()
+        new_label = _STATE_FROM_STRING.get(new_label_str)
+        if new_label is None:
+            return None
+
+        confidence = float(data.get("confidence", 0.5))
+        now = time.time()
+
+        previous = self._last_state or current
+        new_state = CognitiveState(
+            label=new_label,
+            confidence=confidence,
+            contributing_signals=current.contributing_signals,
+            timestamp=now,
+        )
+        return StateTransition(
+            previous_state=previous,
+            new_state=new_state,
+            transition_time=now,
+        )
 
 
 def _collect_signals(
