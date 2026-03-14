@@ -9,26 +9,76 @@ import {
   session,
 } from 'electron';
 import fs from 'node:fs';
+import net from 'node:net';
 import os from 'node:os';
 import path from 'node:path';
 
 const isDev = Boolean(process.env.VITE_DEV_SERVER_URL);
-const desktopEnv = (process.env.XDG_CURRENT_DESKTOP ?? process.env.DESKTOP_SESSION ?? '').toLowerCase();
-const useWindowFallback = process.platform === 'linux' && desktopEnv.includes('gnome');
 const enableTray = process.platform !== 'linux';
 const desktopFileName = 'cognitivesense-shell.desktop';
+const mediaHost = process.env.COGNITIVESENSE_SERVER_HOST ?? '127.0.0.1';
+const mediaPort = Number(process.env.COGNITIVESENSE_SERVER_PORT ?? '9100');
+const useFakeMedia = process.env.COGNITIVESENSE_FAKE_MEDIA === '1';
+const disableGpu = process.env.COGNITIVESENSE_DISABLE_GPU === '1';
+const runtimeLogPath = path.join(os.tmpdir(), 'cognitivesense-electron-runtime.log');
+
+const headerSize = 24;
+const frameMagic = 'CSJ1';
+const audioMagic = 'CSA1';
+const eventMagic = 'CSM1';
+const maxSocketBufferedBytes = 512 * 1024;
+
+type RendererTransportState = 'connecting' | 'connected' | 'disconnected';
+
+type TransportPayload = {
+  connection: RendererTransportState;
+  host: string;
+  port: number;
+  detail?: string;
+};
 
 app.setName('CognitiveSense');
+
+const writeRuntimeLog = (source: string, message: string, data?: unknown) => {
+  const suffix = data === undefined ? '' : ` ${JSON.stringify(data)}`;
+  const line = `${new Date().toISOString()} [${source}] ${message}${suffix}\n`;
+  try {
+    fs.appendFileSync(runtimeLogPath, line, 'utf8');
+  } catch {
+    // Ignore diagnostic logging failures.
+  }
+};
+
+if (disableGpu) {
+  app.disableHardwareAcceleration();
+}
 
 if (process.platform === 'linux') {
   process.env.CHROME_DESKTOP = desktopFileName;
 }
 
 app.commandLine.appendSwitch('autoplay-policy', 'no-user-gesture-required');
+if (disableGpu) {
+  app.commandLine.appendSwitch('disable-gpu');
+  app.commandLine.appendSwitch('disable-gpu-compositing');
+}
+if (useFakeMedia) {
+  app.commandLine.appendSwitch('use-fake-ui-for-media-stream');
+  app.commandLine.appendSwitch('use-fake-device-for-media-stream');
+}
 
 let mainWindow: BrowserWindow | null = null;
 let tray: Tray | null = null;
 let isQuitting = false;
+let backendSocket: net.Socket | null = null;
+let backendReconnectTimer: NodeJS.Timeout | null = null;
+let backendBuffer = Buffer.alloc(0);
+let backendConnection: RendererTransportState = 'disconnected';
+let forwardedFrameCount = 0;
+let forwardedAudioCount = 0;
+let droppedFrameCount = 0;
+let droppedAudioCount = 0;
+let lastForwardedAt = 0;
 
 const createTrayIcon = () => {
   return nativeImage
@@ -76,6 +126,145 @@ const getRendererUrl = () => {
   return `file://${path.join(__dirname, '../../dist/index.html')}`;
 };
 
+const emitToRenderer = (channel: string, payload: unknown) => {
+  if (mainWindow && !mainWindow.isDestroyed()) {
+    mainWindow.webContents.send(channel, payload);
+  }
+};
+
+const getTransportPayload = (payload: Partial<TransportPayload> = {}): TransportPayload => {
+  return {
+    connection: payload.connection ?? backendConnection,
+    host: mediaHost,
+    port: mediaPort,
+    detail: payload.detail,
+  };
+};
+
+const emitTransport = (payload: Partial<TransportPayload> = {}) => {
+  emitToRenderer('telemetry:transport', getTransportPayload(payload));
+};
+
+const transportDetail = () => {
+  if (backendConnection !== 'connected') {
+    return undefined;
+  }
+  if (lastForwardedAt === 0) {
+    return 'TCP connected; waiting for media';
+  }
+  return `frames ${forwardedFrameCount} dropped ${droppedFrameCount} audio ${forwardedAudioCount}`;
+};
+
+const emitTransportSnapshot = () => {
+  emitTransport({ detail: transportDetail() });
+};
+
+const scheduleBackendReconnect = () => {
+  if (backendReconnectTimer) return;
+  backendReconnectTimer = setTimeout(() => {
+    backendReconnectTimer = null;
+    connectBackend();
+  }, 3000);
+};
+
+const closeBackendSocket = () => {
+  if (!backendSocket) return;
+  backendSocket.removeAllListeners();
+  backendSocket.destroy();
+  backendSocket = null;
+};
+
+const parseBackendPackets = (chunk: Buffer) => {
+  backendBuffer = Buffer.concat([backendBuffer, chunk]);
+
+  while (backendBuffer.length >= headerSize) {
+    const magic = backendBuffer.toString('ascii', 0, 4);
+    const payloadSize = backendBuffer.readUInt32BE(12);
+    const packetSize = headerSize + payloadSize;
+    if (backendBuffer.length < packetSize) return;
+
+    const payload = backendBuffer.subarray(headerSize, packetSize);
+    backendBuffer = backendBuffer.subarray(packetSize);
+
+    if (magic !== eventMagic) {
+      continue;
+    }
+
+    try {
+      emitToRenderer('telemetry:event', JSON.parse(payload.toString('utf8')));
+    } catch {
+      emitTransport({ detail: 'Malformed telemetry payload from server' });
+    }
+  }
+};
+
+const connectBackend = () => {
+  if (backendSocket) return;
+
+  backendConnection = 'connecting';
+  writeRuntimeLog('main', 'backend:connecting', { host: mediaHost, port: mediaPort });
+  emitTransport();
+
+  const socket = net.createConnection({ host: mediaHost, port: mediaPort });
+  backendSocket = socket;
+
+  socket.on('connect', () => {
+    backendConnection = 'connected';
+    backendBuffer = Buffer.alloc(0);
+    writeRuntimeLog('main', 'backend:connected', { host: mediaHost, port: mediaPort });
+    emitTransportSnapshot();
+  });
+
+  socket.on('data', parseBackendPackets);
+
+  socket.on('error', (error) => {
+    writeRuntimeLog('main', 'backend:error', { message: error.message });
+    emitTransport({ detail: error.message });
+  });
+
+  socket.on('close', () => {
+    backendSocket = null;
+    backendConnection = 'disconnected';
+    writeRuntimeLog('main', 'backend:closed');
+    emitTransport({ detail: undefined });
+    if (!isQuitting) {
+      scheduleBackendReconnect();
+    }
+  });
+};
+
+const packetTimestamp = () => BigInt(Date.now()) * 1000000n;
+
+const writePacket = (magic: string, meta1: number, meta2: number, payload: Buffer) => {
+  const socket = backendSocket;
+  if (!socket || backendConnection !== 'connected' || socket.destroyed) return false;
+  if (socket.writableLength > maxSocketBufferedBytes || socket.writableNeedDrain) {
+    return false;
+  }
+
+  const header = Buffer.alloc(headerSize);
+  header.write(magic, 0, 4, 'ascii');
+  header.writeUInt32BE(meta1 >>> 0, 4);
+  header.writeUInt32BE(meta2 >>> 0, 8);
+  header.writeUInt32BE(payload.length >>> 0, 12);
+  header.writeBigUInt64BE(packetTimestamp(), 16);
+  return socket.write(Buffer.concat([header, payload]));
+};
+
+const reportMediaCounters = () => {
+  if ((forwardedFrameCount + droppedFrameCount + forwardedAudioCount + droppedAudioCount) % 25 === 0) {
+    emitTransportSnapshot();
+  }
+};
+
+const toBuffer = (data: ArrayBuffer | Uint8Array | Buffer) => {
+  if (Buffer.isBuffer(data)) return data;
+  if (data instanceof Uint8Array) {
+    return Buffer.from(data.buffer, data.byteOffset, data.byteLength);
+  }
+  return Buffer.from(data);
+};
+
 const showWindow = async () => {
   if (!mainWindow) return;
   mainWindow.setSkipTaskbar(false);
@@ -88,10 +277,6 @@ const showWindow = async () => {
 
 const hideWindow = () => {
   if (!mainWindow) return;
-  if (useWindowFallback) {
-    mainWindow.minimize();
-    return;
-  }
   mainWindow.hide();
   mainWindow.setSkipTaskbar(true);
   if (process.platform === 'darwin' && !isQuitting && app.dock) {
@@ -101,12 +286,14 @@ const hideWindow = () => {
 
 const createWindow = async () => {
   mainWindow = new BrowserWindow({
-    width: 800,
-    height: 600,
-    minWidth: 480,
-    minHeight: 360,
+    width: 1180,
+    height: 780,
+    minWidth: 860,
+    minHeight: 620,
     show: true,
-    backgroundColor: '#0a0a0a',
+    frame: false,
+    titleBarStyle: 'hidden',
+    backgroundColor: '#07111a',
     title: 'CognitiveSense',
     autoHideMenuBar: true,
     resizable: true,
@@ -118,10 +305,8 @@ const createWindow = async () => {
     },
   });
 
-  mainWindow.on('close', (event) => {
-    if (isQuitting) return;
-    event.preventDefault();
-    hideWindow();
+  mainWindow.webContents.on('did-finish-load', () => {
+    emitTransportSnapshot();
   });
 
   await mainWindow.loadURL(getRendererUrl()).catch((error: unknown) => {
@@ -168,8 +353,8 @@ const createTray = () => {
 app.whenReady().then(async () => {
   app.setAppUserModelId('com.genesis.cognitivesense');
   ensureLinuxDesktopEntry();
+  connectBackend();
 
-  // Grant camera and microphone permissions automatically
   session.defaultSession.setPermissionRequestHandler((_webContents, permission, callback) => {
     callback(['media', 'mediaKeySystem'].includes(permission));
   });
@@ -179,6 +364,13 @@ app.whenReady().then(async () => {
   });
   ipcMain.handle('shell:hide', () => {
     hideWindow();
+  });
+  ipcMain.handle('shell:minimize', () => {
+    mainWindow?.minimize();
+  });
+  ipcMain.handle('shell:quit', () => {
+    isQuitting = true;
+    app.quit();
   });
   ipcMain.handle('shell:notify', (_event, title: string, body: string) => {
     if (Notification.isSupported()) {
@@ -190,7 +382,63 @@ app.whenReady().then(async () => {
       }).show();
     }
   });
+  ipcMain.on(
+    'stream:frame',
+    (_event, payload: { data: ArrayBuffer | Uint8Array; width: number; height: number }) => {
+      const sent = writePacket(
+        frameMagic,
+        payload.width,
+        payload.height,
+        toBuffer(payload.data),
+      );
+    if (sent) {
+      forwardedFrameCount += 1;
+      lastForwardedAt = Date.now();
+      if (forwardedFrameCount === 1) {
+        writeRuntimeLog('main', 'media:first-frame-forwarded', {
+          width: payload.width,
+          height: payload.height,
+          bytes: toBuffer(payload.data).byteLength,
+        });
+      }
+    } else {
+      droppedFrameCount += 1;
+      if (droppedFrameCount === 1) {
+        writeRuntimeLog('main', 'media:first-frame-dropped');
+      }
+    }
+    reportMediaCounters();
+  },
+  );
+  ipcMain.on(
+    'stream:audio',
+    (_event, payload: { data: ArrayBuffer | Uint8Array; sampleRate: number; channels: number }) => {
+      const sent = writePacket(
+        audioMagic,
+        payload.sampleRate,
+        payload.channels,
+        toBuffer(payload.data),
+      );
+      if (sent) {
+        forwardedAudioCount += 1;
+        lastForwardedAt = Date.now();
+      } else {
+        droppedAudioCount += 1;
+      }
+      reportMediaCounters();
+    },
+  );
+  ipcMain.handle('stream:backend-target', () => ({ host: mediaHost, port: mediaPort }));
+  ipcMain.handle('telemetry:transport-state', () => getTransportPayload({ detail: transportDetail() }));
+  ipcMain.on('diagnostic:log', (_event, payload: { message: string; data?: unknown }) => {
+    writeRuntimeLog('renderer', payload.message, payload.data);
+  });
 
+  writeRuntimeLog('main', 'app:ready', {
+    runtimeLogPath,
+    disableGpu,
+    useFakeMedia,
+  });
   await createWindow();
   createTray();
 
@@ -205,6 +453,11 @@ app.whenReady().then(async () => {
 
 app.on('before-quit', () => {
   isQuitting = true;
+  if (backendReconnectTimer) {
+    clearTimeout(backendReconnectTimer);
+    backendReconnectTimer = null;
+  }
+  closeBackendSocket();
 });
 
 app.on('window-all-closed', () => {

@@ -1,12 +1,19 @@
 from __future__ import annotations
 
+import logging
+import os
 from typing import Protocol
 
 import numpy as np
 from models.types import ClassifierResult
 from numpy.typing import NDArray
-from transformers import pipeline  # type: ignore[import-untyped]
 
+logger = logging.getLogger(__name__)
+
+try:
+    from transformers import pipeline  # type: ignore[import-untyped]
+except Exception:  # pragma: no cover - optional dependency failure.
+    pipeline = None
 
 
 class SpeechToneClassifierProtocol(Protocol):
@@ -24,7 +31,7 @@ class SpeechToneClassifierProtocol(Protocol):
         """
         ...
 
-# Maps HuggingFace emotion labels to protocol labels.
+
 _EMOTION_TO_TONE: dict[str, str] = {
     "angry": "stressed",
     "disgusted": "stressed",
@@ -37,65 +44,183 @@ _EMOTION_TO_TONE: dict[str, str] = {
 
 _MODEL_SAMPLE_RATE = 16_000
 _SILENCE_RMS_THRESHOLD = 0.001
+_DEFAULT_BACKEND = "heuristic"
 
 
 class SpeechToneClassifier:
-    """Classifies speech tone from audio using Hatman/audio-emotion-detection."""
+    """Speech tone classifier with cheap heuristic default."""
 
     def __init__(self) -> None:
-        self._pipe = pipeline(
-            "audio-classification",
-            model="Hatman/audio-emotion-detection",
+        self._backend = (
+            os.environ.get(
+                "SPEECH_TONE_BACKEND",
+                _DEFAULT_BACKEND,
+            )
+            .strip()
+            .lower()
         )
+        self._pipe = None
+        self._pipe_failed = False
+
+        if self._backend not in {"heuristic", "transformer"}:
+            logger.warning(
+                "Unknown SPEECH_TONE_BACKEND=%s; falling back to heuristic",
+                self._backend,
+            )
+            self._backend = "heuristic"
+
+        if self._backend == "heuristic":
+            logger.info("SpeechToneClassifier using heuristic backend")
 
     def classify(
         self,
         audio_chunk: NDArray[np.float32],
         sample_rate: int = _MODEL_SAMPLE_RATE,
     ) -> ClassifierResult:
-        """Classify tone from audio features.
-
-        Labels: "calm", "stressed", "monotone", "silent".
-        """
-
-        # Flatten to 1D — mic adapter delivers shape (N, channels)
-        audio_chunk = audio_chunk.squeeze()
+        audio_chunk = _to_mono(audio_chunk.squeeze())
 
         if _is_silent(audio_chunk):
             return ClassifierResult(label="silent", confidence=1.0)
 
-        # Resample to 16 kHz if needed.
+        if self._backend == "transformer":
+            transformer_result = self._classify_with_transformer(
+                audio_chunk,
+                sample_rate,
+            )
+            if transformer_result is not None:
+                return transformer_result
+
+        return _classify_with_heuristics(audio_chunk, sample_rate)
+
+    def _classify_with_transformer(
+        self,
+        audio_chunk: NDArray[np.float32],
+        sample_rate: int,
+    ) -> ClassifierResult | None:
+        pipe = self._ensure_transformer_pipeline()
+        if pipe is None:
+            return None
+
+        model_audio = audio_chunk
         if sample_rate != _MODEL_SAMPLE_RATE:
-            audio_chunk = _resample(audio_chunk, sample_rate, _MODEL_SAMPLE_RATE)
+            model_audio = _resample(audio_chunk, sample_rate, _MODEL_SAMPLE_RATE)
 
-        results: list[dict[str, object]] = self._pipe(
-            {"raw": audio_chunk, "sampling_rate": _MODEL_SAMPLE_RATE},
-            top_k=len(_EMOTION_TO_TONE),
-        )
+        try:
+            results: list[dict[str, object]] = pipe(
+                {"raw": model_audio, "sampling_rate": _MODEL_SAMPLE_RATE},
+                top_k=len(_EMOTION_TO_TONE),
+            )
+        except Exception:
+            logger.exception(
+                "SpeechToneClassifier transformer inference failed; "
+                "falling back to heuristic backend"
+            )
+            self._pipe_failed = True
+            return None
 
-        # Aggregate scores by protocol label.
-        tone_scores: dict[str, float] = {"calm": 0.0, "stressed": 0.0, "monotone": 0.0}
-        for r in results:
-            emotion = str(r["label"]).lower()
-            score = float(r["score"])  # type: ignore[arg-type]
+        tone_scores: dict[str, float] = {
+            "calm": 0.0,
+            "stressed": 0.0,
+            "monotone": 0.0,
+        }
+        for result in results:
+            label_value = result.get("label")
+            score_value = result.get("score")
+            emotion = str(label_value).lower()
+            score = _coerce_float(score_value)
             tone = _EMOTION_TO_TONE.get(emotion)
             if tone is not None:
                 tone_scores[tone] += score
 
-        best_label = max(tone_scores, key=lambda k: tone_scores[k])
-        return ClassifierResult(label=best_label, confidence=tone_scores[best_label])
+        best_label = max(tone_scores, key=lambda key: tone_scores[key])
+        return ClassifierResult(
+            label=best_label,
+            confidence=tone_scores[best_label],
+        )
+
+    def _ensure_transformer_pipeline(self):
+        if self._pipe_failed:
+            return None
+        if self._pipe is not None:
+            return self._pipe
+        if pipeline is None:
+            logger.warning(
+                "transformers is unavailable; falling back to heuristic speech tone"
+            )
+            self._pipe_failed = True
+            return None
+
+        try:
+            logger.info(
+                "Loading transformer speech tone backend; this may download "
+                "model weights"
+            )
+            self._pipe = pipeline(
+                "audio-classification",
+                model="Hatman/audio-emotion-detection",
+            )
+        except Exception:
+            logger.exception(
+                "Failed to initialize transformer speech tone backend; "
+                "falling back to heuristic"
+            )
+            self._pipe_failed = True
+            self._pipe = None
+            return None
+        return self._pipe
 
 
 def _to_mono(audio: NDArray[np.float32]) -> NDArray[np.float32]:
-    """Convert multi-channel audio to 1-D mono by averaging channels."""
     if audio.ndim == 1:
-        return audio
-    # (N, channels) → average across channels → (N,)
+        return audio.astype(np.float32, copy=False)
     return audio.mean(axis=1).astype(np.float32)
 
 
+def _coerce_float(value: object) -> float:
+    if isinstance(value, bool):
+        return float(value)
+    if isinstance(value, (int, float)):
+        return float(value)
+    return 0.0
+
+
+def _classify_with_heuristics(
+    audio: NDArray[np.float32],
+    sample_rate: int,
+) -> ClassifierResult:
+    rms = float(np.sqrt(np.mean(audio**2)))
+    peak = float(np.max(np.abs(audio)))
+    zero_crossings = float(
+        np.mean(np.abs(np.diff(np.signbit(audio)).astype(np.float32)))
+    )
+
+    window = max(1, min(len(audio), sample_rate // 8))
+    envelope = np.abs(audio[: len(audio) - (len(audio) % window)])
+    if len(envelope) >= window:
+        chunks = envelope.reshape(-1, window)
+        chunk_energy = np.asarray(chunks.mean(axis=1), dtype=np.float32)
+        mean_energy = sum(float(value) for value in chunk_energy) / len(chunk_energy)
+        variance = sum(
+            (float(value) - mean_energy) ** 2 for value in chunk_energy
+        ) / len(chunk_energy)
+        std_energy = variance**0.5
+        variation = std_energy / (mean_energy + 1e-6)
+    else:
+        variation = 0.0
+
+    if rms > 0.09 or peak > 0.72 or zero_crossings > 0.22:
+        confidence = min(0.95, 0.55 + rms * 2.4 + zero_crossings)
+        return ClassifierResult(label="stressed", confidence=confidence)
+
+    if variation < 0.12 and zero_crossings < 0.08:
+        confidence = min(0.9, 0.58 + (0.12 - variation) * 1.8)
+        return ClassifierResult(label="monotone", confidence=confidence)
+
+    confidence = min(0.88, 0.6 + variation * 0.6 + max(0.0, 0.12 - rms))
+    return ClassifierResult(label="calm", confidence=confidence)
+
+
 def _is_silent(audio: NDArray[np.float32]) -> bool:
-    """Return True if RMS energy is below silence threshold."""
     if len(audio) == 0:
         return True
     rms = float(np.sqrt(np.mean(audio**2)))
@@ -103,39 +228,11 @@ def _is_silent(audio: NDArray[np.float32]) -> bool:
 
 
 def _resample(
-    audio: NDArray[np.float32], orig_sr: int, target_sr: int
+    audio: NDArray[np.float32],
+    orig_sr: int,
+    target_sr: int,
 ) -> NDArray[np.float32]:
-    """Simple linear interpolation resampling."""
     duration = len(audio) / orig_sr
-    target_length = int(duration * target_sr)
+    target_length = max(1, int(duration * target_sr))
     indices = np.linspace(0, len(audio) - 1, target_length)
-    resampled: NDArray[np.float32] = np.interp(
-        indices,
-        np.arange(len(audio)),
-        audio,
-    ).astype(np.float32)
-    return resampled
-
-
-if __name__ == "__main__":
-    import sounddevice as sd
-
-    SAMPLE_RATE = 16_000
-    DURATION_SECONDS = 3
-
-    print(f"Recording {DURATION_SECONDS}s of audio at {SAMPLE_RATE} Hz...")
-    audio_data: NDArray[np.float32] = sd.rec(
-        int(DURATION_SECONDS * SAMPLE_RATE),
-        samplerate=SAMPLE_RATE,
-        channels=1,
-        dtype="float32",
-    )
-    sd.wait()
-    audio_data = audio_data.squeeze()
-    print(f"Recorded {len(audio_data)} samples.")
-
-    print("Loading model (first run downloads ~1.2 GB)...")
-    classifier = SpeechToneClassifier()
-
-    result = classifier.classify(audio_data, SAMPLE_RATE)
-    print(f"Label: {result.label}, Confidence: {result.confidence:.3f}")
+    return np.interp(indices, np.arange(len(audio)), audio).astype(np.float32)

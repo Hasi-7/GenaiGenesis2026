@@ -2,11 +2,11 @@
 
 Usage::
 
-    uv run cognitivesense [desktop|mirror]
+    uv run python main.py [desktop|mirror|server]
 
 Or directly::
 
-    cd server && uv run python -m main [desktop|mirror]
+    uv run python -m server.main [desktop|mirror|server]
 """
 
 from __future__ import annotations
@@ -21,6 +21,7 @@ sys.path.insert(0, os.path.dirname(__file__))
 from config.logging_config import setup_logging
 from core.pipeline_controller import PipelineController
 from input.camera_adapter import LocalCameraAdapter, NetworkCameraAdapter
+from input.remote_media_server import RemoteMediaServer
 from input.screenshot_manager import ScreenshotManager
 from models.types import PipelineConfig
 from openai import OpenAI
@@ -34,7 +35,14 @@ def main() -> None:
     setup_logging()
 
     env = sys.argv[1] if len(sys.argv) > 1 else "desktop"
-    config = PipelineConfig.mirror() if env == "mirror" else PipelineConfig.desktop()
+    if env == "mirror":
+        config = PipelineConfig.mirror()
+    elif env in {"server", "frontend"}:
+        if env == "frontend":
+            logger.warning('Mode "frontend" is deprecated; use "server" instead')
+        config = PipelineConfig.server()
+    else:
+        config = PipelineConfig.desktop()
 
     tracker_type = os.environ.get("STATE_TRACKER_TYPE", config.state_tracker_type)
     api_key = os.environ.get("OPENAI_API_KEY")
@@ -54,7 +62,19 @@ def main() -> None:
         rate_limiter=RateLimiter(cooldown_seconds=config.llm_cooldown_seconds),
     )
 
-    if env == "mirror":
+    remote_media_server: RemoteMediaServer | None = None
+    mic_source = None
+
+    if config.remote_media_enabled:
+        remote_media_server = RemoteMediaServer(
+            host=config.remote_media_host,
+            port=config.remote_media_port,
+        )
+        camera = remote_media_server.make_camera_source()
+        mic_source = (
+            remote_media_server.make_mic_source() if config.mic_enabled else None
+        )
+    elif env == "mirror":
         camera = NetworkCameraAdapter(
             config.mirror_listen_host,
             config.mirror_listen_port,
@@ -65,6 +85,7 @@ def main() -> None:
 
     state_tracker: StateTracker | LLMStateTracker
     if tracker_type == "llm":
+        assert client is not None
         state_tracker = LLMStateTracker(
             client=client,
             screenshot_manager=screenshot_manager,
@@ -80,6 +101,8 @@ def main() -> None:
         llm_engine=engine,
         screenshot_manager=screenshot_manager,
         state_tracker=state_tracker,
+        mic_source=mic_source,
+        telemetry_sink=remote_media_server,
     )
     controller.run()
 

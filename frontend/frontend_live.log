@@ -1,0 +1,439 @@
+
+> cognitivesense-shell@0.1.0 dev
+> npm run dev:desktop
+
+
+> cognitivesense-shell@0.1.0 dev:desktop
+> node ./scripts/dev-cleanup.mjs && concurrently -k "npm:dev:renderer" "npm:dev:electron"
+
+[dev:electron] 
+[dev:electron] > cognitivesense-shell@0.1.0 dev:electron
+[dev:electron] > concurrently -k "tsc -p tsconfig.node.json --watch" "wait-on tcp:5173 dist-electron/electron/main.js && cross-env VITE_DEV_SERVER_URL=http://127.0.0.1:5173 electronmon ."
+[dev:electron] 
+[dev:renderer] 
+[dev:renderer] > cognitivesense-shell@0.1.0 dev:renderer
+[dev:renderer] > vite --strictPort
+[dev:renderer] 
+[dev:renderer] 1:40:13 p.m. [vite] (client) Re-optimizing dependencies because lockfile has changed
+[dev:renderer] 
+[dev:renderer]   VITE v6.4.1  ready in 126 ms
+[dev:renderer] 
+[dev:renderer]   ➜  Local:   http://127.0.0.1:5173/
+[dev:electron] [0] [2J[3J[H1:40:13 p.m. - Starting compilation in watch mode...
+[dev:electron] [0] 
+[dev:electron] [0] 
+[dev:electron] [0] 1:40:14 p.m. - Found 0 errors. Watching for file changes.
+[dev:electron] [1] [electronmon] waiting for a change to restart it
+[dev:electron] [1] [electronmon] renderer file change: frontend_live.log
+[dev:electron] [1] [electronmon] renderer file change: frontend_live.log
+[dev:electron] [1] [electronmon] renderer file change: frontend_live.log
+[dev:electron] [1] Failed to load renderer URL Error: ERR_ABORTED (-3) loading 'http://127.0.0.1:5173/'
+[dev:electron] [1]     at rejectAndCleanup (node:electron/js2c/browser_init:2:73882)
+[dev:electron] [1]     at WebContents.navigationListener (node:electron/js2c/browser_init:2:74193)
+[dev:electron] [1]     at WebContents.emit (node:events:517:28) {
+[dev:electron] [1]   errno: -3,
+[dev:electron] [1]   code: 'ERR_ABORTED',
+[dev:electron] [1]   url: 'http://127.0.0.1:5173/'
+[dev:electron] [1] }
+[dev:electron] [1] [electronmon] renderer file change: frontend_live.log
+[dev:electron] [1] [electronmon] renderer file change: frontend_live.log
+[dev:electron] [1] [electronmon] renderer file change: frontend_live.log
+[dev:electron] [1] [electronmon] renderer file change: frontend_live.log
+[dev:electron] [1] [electronmon] renderer file change: frontend_live.log
+[dev:electron] [1] [electronmon] renderer file change: frontend_live.log
+[dev:electron] [1] [electronmon] renderer file change: frontend_live.log
+[dev:electron] [1] [electronmon] renderer file change: frontend_live.log
+[dev:electron] [1] [electronmon] renderer file change: frontend_live.log
+[dev:electron] [1] [electronmon] renderer file change: frontend_live.log
+[dev:electron] [1] [electronmon] renderer file change: frontend_live.log
+[dev:electron] [1] [electronmon] renderer file change: frontend_live.log
+[dev:electron] [1] [electronmon] renderer file change: frontend_live.log
+[dev:electron] [1] [electronmon] renderer file change: frontend_live.log
+[dev:electron] [1] [electronmon] renderer file change: frontend_live.log
+[dev:electron] [1] [electronmon] renderer file change: frontend_live.log
+[dev:electron] [1] [electronmon] renderer file change: frontend_live.log
+[dev:electron] [1] [electronmon] renderer file change: frontend_live.log
+[dev:electron] [1] [electronmon] renderer file change: frontend_live.log
+[dev:electron] [1] [electronmon] renderer file change: frontend_live.log
+[dev:electron] [1] [electronmon] renderer file change: frontend_live.log
+[dev:electron] [1] [electronmon] renderer file change: frontend_live.log
+[dev:electron] [1] [electronmon] renderer file change: frontend_live.log
+[dev:electron] [1] [electronmon] renderer file change: frontend_live.log
+[dev:electron] [1] [electronmon] renderer file change: frontend_live.log
+[dev:electron] [1] [electronmon] renderer file change: frontend_live.log
+[dev:electron] [1] [electronmon] renderer file change: frontend_live.log
+[dev:electron] [1] [electronmon] renderer file change: frontend_live.log
+[dev:electron] [1] [electronmon] renderer file change: frontend_live.log
+[dev:electron] [1] [electronmon] renderer file change: frontend_live.log
+[dev:electron] [1] [electronmon] renderer file change: frontend_live.log
+[dev:electron] [1] [electronmon] renderer file change: frontend_live.log
+[dev:electron] [1] [electronmon] renderer file change: frontend_live.log
+[dev:electron] [1] [electronmon] renderer file change: frontend_live.log
+[dev:electron] [1] [electronmon] renderer file change: frontend_live.log
+[dev:electron] [1] [electronmon] renderer file change: frontend_live.log
+[dev:electron] [1] [electronmon] renderer file change: frontend_live.log
+[dev:electron] [1] [electronmon] renderer file change: frontend_live.log
+[dev:electron] [1] [electronmon] renderer file change: frontend_live.log
+[dev:electron] [1] [electronmon] renderer file change: frontend_live.log
+[dev:electron] [1] [electronmon] renderer file change: frontend_live.log
+[dev:electron] [1] [electronmon] renderer file change: frontend_live.log
+[dev:electron] [1] [electronmon] renderer file change: frontend_live.log
+[dev:electron] [1] [electronmon] renderer file change: frontend_live.log
+[dev:electron] [1] [electronmon] renderer file change: frontend_live.log
+[dev:electron] [1] [electronmon] renderer file change: frontend_live.log
+[dev:electron] [1] [electronmon] renderer file change: frontend_live.log
+[dev:electron] [1] [electronmon] renderer file change: frontend_live.log
+[dev:electron] [1] [electronmon] renderer file change: frontend_live.log
+[dev:electron] [1] [electronmon] renderer file change: frontend_live.log
+[dev:electron] [1] [electronmon] renderer file change: frontend_live.log
+[dev:electron] [1] [electronmon] renderer file change: frontend_live.log
+[dev:electron] [1] [electronmon] renderer file change: frontend_live.log
+[dev:electron] [1] [electronmon] renderer file change: frontend_live.log
+[dev:electron] [1] [electronmon] renderer file change: frontend_live.log
+[dev:electron] [1] [electronmon] renderer file change: frontend_live.log
+[dev:electron] [1] [electronmon] renderer file change: frontend_live.log
+[dev:electron] [1] [electronmon] renderer file change: frontend_live.log
+[dev:electron] [1] [electronmon] renderer file change: frontend_live.log
+[dev:electron] [1] [electronmon] renderer file change: frontend_live.log
+[dev:electron] [1] [electronmon] renderer file change: frontend_live.log
+[dev:electron] [1] [electronmon] renderer file change: frontend_live.log
+[dev:electron] [1] [electronmon] renderer file change: frontend_live.log
+[dev:electron] [1] [electronmon] renderer file change: frontend_live.log
+[dev:electron] [1] [electronmon] renderer file change: frontend_live.log
+[dev:electron] [1] [electronmon] renderer file change: frontend_live.log
+[dev:electron] [1] [electronmon] renderer file change: frontend_live.log
+[dev:electron] [1] [electronmon] renderer file change: frontend_live.log
+[dev:electron] [1] [electronmon] renderer file change: frontend_live.log
+[dev:electron] [1] [electronmon] renderer file change: frontend_live.log
+[dev:electron] [1] [electronmon] renderer file change: frontend_live.log
+[dev:electron] [1] [electronmon] renderer file change: frontend_live.log
+[dev:electron] [1] [electronmon] renderer file change: frontend_live.log
+[dev:electron] [1] [electronmon] renderer file change: frontend_live.log
+[dev:electron] [1] [electronmon] renderer file change: frontend_live.log
+[dev:electron] [1] [electronmon] renderer file change: frontend_live.log
+[dev:electron] [1] [electronmon] renderer file change: frontend_live.log
+[dev:electron] [1] [electronmon] renderer file change: frontend_live.log
+[dev:electron] [1] [electronmon] renderer file change: frontend_live.log
+[dev:electron] [1] [electronmon] renderer file change: frontend_live.log
+[dev:electron] [1] [electronmon] renderer file change: frontend_live.log
+[dev:electron] [1] [electronmon] renderer file change: frontend_live.log
+[dev:electron] [1] [electronmon] renderer file change: frontend_live.log
+[dev:electron] [1] [electronmon] renderer file change: frontend_live.log
+[dev:electron] [1] [electronmon] renderer file change: frontend_live.log
+[dev:electron] [1] [electronmon] renderer file change: frontend_live.log
+[dev:electron] [1] [electronmon] renderer file change: frontend_live.log
+[dev:electron] [1] [electronmon] renderer file change: frontend_live.log
+[dev:electron] [1] [electronmon] renderer file change: frontend_live.log
+[dev:electron] [1] [electronmon] renderer file change: frontend_live.log
+[dev:electron] [1] [electronmon] renderer file change: frontend_live.log
+[dev:electron] [1] [electronmon] renderer file change: frontend_live.log
+[dev:electron] [1] [electronmon] renderer file change: frontend_live.log
+[dev:electron] [1] [electronmon] renderer file change: frontend_live.log
+[dev:electron] [1] [electronmon] renderer file change: frontend_live.log
+[dev:electron] [1] [electronmon] renderer file change: frontend_live.log
+[dev:electron] [1] [electronmon] renderer file change: frontend_live.log
+[dev:electron] [1] [electronmon] renderer file change: frontend_live.log
+[dev:electron] [1] [electronmon] renderer file change: frontend_live.log
+[dev:electron] [1] [electronmon] renderer file change: frontend_live.log
+[dev:electron] [1] [electronmon] renderer file change: frontend_live.log
+[dev:electron] [1] [electronmon] renderer file change: frontend_live.log
+[dev:electron] [1] [electronmon] renderer file change: frontend_live.log
+[dev:electron] [1] [electronmon] renderer file change: frontend_live.log
+[dev:electron] [1] [electronmon] renderer file change: frontend_live.log
+[dev:electron] [1] [electronmon] renderer file change: frontend_live.log
+[dev:electron] [1] [electronmon] renderer file change: frontend_live.log
+[dev:electron] [1] [electronmon] renderer file change: frontend_live.log
+[dev:electron] [1] [electronmon] renderer file change: frontend_live.log
+[dev:electron] [1] [electronmon] renderer file change: frontend_live.log
+[dev:electron] [1] [electronmon] renderer file change: frontend_live.log
+[dev:electron] [1] [electronmon] renderer file change: frontend_live.log
+[dev:electron] [1] [electronmon] renderer file change: frontend_live.log
+[dev:electron] [1] [electronmon] renderer file change: frontend_live.log
+[dev:electron] [1] [electronmon] renderer file change: frontend_live.log
+[dev:electron] [1] [electronmon] renderer file change: frontend_live.log
+[dev:electron] [1] [electronmon] renderer file change: frontend_live.log
+[dev:electron] [1] [electronmon] renderer file change: frontend_live.log
+[dev:electron] [1] [electronmon] renderer file change: frontend_live.log
+[dev:electron] [1] [electronmon] renderer file change: frontend_live.log
+[dev:electron] [1] [electronmon] renderer file change: frontend_live.log
+[dev:electron] [1] [electronmon] renderer file change: frontend_live.log
+[dev:electron] [1] [electronmon] renderer file change: frontend_live.log
+[dev:electron] [1] [electronmon] renderer file change: frontend_live.log
+[dev:electron] [1] [electronmon] renderer file change: frontend_live.log
+[dev:electron] [1] [electronmon] renderer file change: frontend_live.log
+[dev:electron] [1] [electronmon] renderer file change: frontend_live.log
+[dev:electron] [1] [electronmon] renderer file change: frontend_live.log
+[dev:electron] [1] [electronmon] renderer file change: frontend_live.log
+[dev:electron] [1] [electronmon] renderer file change: frontend_live.log
+[dev:electron] [1] [electronmon] renderer file change: frontend_live.log
+[dev:electron] [1] [electronmon] renderer file change: frontend_live.log
+[dev:electron] [1] [electronmon] renderer file change: frontend_live.log
+[dev:electron] [1] [electronmon] renderer file change: frontend_live.log
+[dev:electron] [1] [electronmon] renderer file change: frontend_live.log
+[dev:electron] [1] [electronmon] renderer file change: frontend_live.log
+[dev:electron] [1] [electronmon] renderer file change: frontend_live.log
+[dev:electron] [1] [electronmon] renderer file change: frontend_live.log
+[dev:electron] [1] [electronmon] renderer file change: frontend_live.log
+[dev:electron] [1] [electronmon] renderer file change: frontend_live.log
+[dev:electron] [1] [electronmon] renderer file change: frontend_live.log
+[dev:electron] [1] [electronmon] renderer file change: frontend_live.log
+[dev:electron] [1] [electronmon] renderer file change: frontend_live.log
+[dev:electron] [1] [electronmon] renderer file change: frontend_live.log
+[dev:electron] [1] [electronmon] renderer file change: frontend_live.log
+[dev:electron] [1] [electronmon] renderer file change: frontend_live.log
+[dev:electron] [1] [electronmon] renderer file change: frontend_live.log
+[dev:electron] [1] [electronmon] renderer file change: frontend_live.log
+[dev:electron] [1] [electronmon] renderer file change: frontend_live.log
+[dev:electron] [1] [electronmon] renderer file change: frontend_live.log
+[dev:electron] [1] [electronmon] renderer file change: frontend_live.log
+[dev:electron] [1] [electronmon] renderer file change: frontend_live.log
+[dev:electron] [1] [electronmon] renderer file change: frontend_live.log
+[dev:electron] [1] [electronmon] renderer file change: frontend_live.log
+[dev:electron] [1] [electronmon] renderer file change: frontend_live.log
+[dev:electron] [1] [electronmon] renderer file change: frontend_live.log
+[dev:electron] [1] [electronmon] renderer file change: frontend_live.log
+[dev:electron] [1] [electronmon] renderer file change: frontend_live.log
+[dev:electron] [1] [electronmon] renderer file change: frontend_live.log
+[dev:electron] [1] [electronmon] renderer file change: frontend_live.log
+[dev:electron] [1] [electronmon] renderer file change: frontend_live.log
+[dev:electron] [1] [electronmon] renderer file change: frontend_live.log
+[dev:electron] [1] [electronmon] renderer file change: frontend_live.log
+[dev:electron] [1] [electronmon] renderer file change: frontend_live.log
+[dev:electron] [1] [electronmon] renderer file change: frontend_live.log
+[dev:electron] [1] [electronmon] renderer file change: frontend_live.log
+[dev:electron] [1] [electronmon] renderer file change: frontend_live.log
+[dev:electron] [1] [electronmon] renderer file change: frontend_live.log
+[dev:electron] [1] [electronmon] renderer file change: frontend_live.log
+[dev:electron] [1] [electronmon] renderer file change: frontend_live.log
+[dev:electron] [1] [electronmon] renderer file change: frontend_live.log
+[dev:electron] [1] [electronmon] renderer file change: frontend_live.log
+[dev:electron] [1] [electronmon] renderer file change: frontend_live.log
+[dev:electron] [1] [electronmon] renderer file change: frontend_live.log
+[dev:electron] [1] [electronmon] renderer file change: frontend_live.log
+[dev:electron] [1] [electronmon] renderer file change: frontend_live.log
+[dev:electron] [1] [electronmon] renderer file change: frontend_live.log
+[dev:electron] [1] [electronmon] renderer file change: frontend_live.log
+[dev:electron] [1] [electronmon] renderer file change: frontend_live.log
+[dev:electron] [1] [electronmon] renderer file change: frontend_live.log
+[dev:electron] [1] [electronmon] renderer file change: frontend_live.log
+[dev:electron] [1] [electronmon] renderer file change: frontend_live.log
+[dev:electron] [1] [electronmon] renderer file change: frontend_live.log
+[dev:electron] [1] [electronmon] renderer file change: frontend_live.log
+[dev:electron] [1] [electronmon] renderer file change: frontend_live.log
+[dev:electron] [1] [electronmon] renderer file change: frontend_live.log
+[dev:electron] [1] [electronmon] renderer file change: frontend_live.log
+[dev:electron] [1] [electronmon] renderer file change: frontend_live.log
+[dev:electron] [1] [electronmon] renderer file change: frontend_live.log
+[dev:electron] [1] [electronmon] renderer file change: frontend_live.log
+[dev:electron] [1] [electronmon] renderer file change: frontend_live.log
+[dev:electron] [1] [electronmon] renderer file change: frontend_live.log
+[dev:electron] [1] [electronmon] renderer file change: frontend_live.log
+[dev:electron] [1] [electronmon] renderer file change: frontend_live.log
+[dev:electron] [1] [electronmon] renderer file change: frontend_live.log
+[dev:electron] [1] [electronmon] renderer file change: frontend_live.log
+[dev:electron] [1] [electronmon] renderer file change: frontend_live.log
+[dev:electron] [1] [electronmon] renderer file change: frontend_live.log
+[dev:electron] [1] [electronmon] renderer file change: frontend_live.log
+[dev:electron] [1] [electronmon] renderer file change: frontend_live.log
+[dev:electron] [1] [electronmon] renderer file change: frontend_live.log
+[dev:electron] [1] [electronmon] renderer file change: frontend_live.log
+[dev:electron] [1] [electronmon] renderer file change: frontend_live.log
+[dev:electron] [1] [electronmon] renderer file change: frontend_live.log
+[dev:electron] [1] [electronmon] renderer file change: frontend_live.log
+[dev:electron] [1] [electronmon] renderer file change: frontend_live.log
+[dev:electron] [1] [electronmon] renderer file change: frontend_live.log
+[dev:electron] [1] [electronmon] renderer file change: frontend_live.log
+[dev:electron] [1] [electronmon] renderer file change: frontend_live.log
+[dev:electron] [1] [electronmon] renderer file change: frontend_live.log
+[dev:electron] [1] [electronmon] renderer file change: frontend_live.log
+[dev:electron] [1] [electronmon] renderer file change: frontend_live.log
+[dev:electron] [1] [electronmon] renderer file change: frontend_live.log
+[dev:electron] [1] [electronmon] renderer file change: frontend_live.log
+[dev:electron] [1] [electronmon] renderer file change: frontend_live.log
+[dev:electron] [1] [electronmon] renderer file change: frontend_live.log
+[dev:electron] [1] [electronmon] renderer file change: frontend_live.log
+[dev:electron] [1] [electronmon] renderer file change: frontend_live.log
+[dev:electron] [1] [electronmon] renderer file change: frontend_live.log
+[dev:electron] [1] [electronmon] renderer file change: frontend_live.log
+[dev:electron] [1] [electronmon] renderer file change: frontend_live.log
+[dev:electron] [1] [electronmon] renderer file change: frontend_live.log
+[dev:electron] [1] [electronmon] renderer file change: frontend_live.log
+[dev:electron] [1] [electronmon] renderer file change: frontend_live.log
+[dev:electron] [1] [electronmon] renderer file change: frontend_live.log
+[dev:electron] [1] [electronmon] renderer file change: frontend_live.log
+[dev:electron] [1] [electronmon] renderer file change: frontend_live.log
+[dev:electron] [1] [electronmon] renderer file change: frontend_live.log
+[dev:electron] [1] [electronmon] renderer file change: frontend_live.log
+[dev:electron] [1] [electronmon] renderer file change: frontend_live.log
+[dev:electron] [1] [electronmon] renderer file change: frontend_live.log
+[dev:electron] [1] [electronmon] renderer file change: frontend_live.log
+[dev:electron] [1] [electronmon] renderer file change: frontend_live.log
+[dev:electron] [1] [electronmon] renderer file change: frontend_live.log
+[dev:electron] [1] [electronmon] renderer file change: frontend_live.log
+[dev:electron] [1] [electronmon] renderer file change: frontend_live.log
+[dev:electron] [1] [electronmon] renderer file change: frontend_live.log
+[dev:electron] [1] [electronmon] renderer file change: frontend_live.log
+[dev:electron] [1] [electronmon] renderer file change: frontend_live.log
+[dev:electron] [1] [electronmon] renderer file change: frontend_live.log
+[dev:electron] [1] [electronmon] renderer file change: frontend_live.log
+[dev:electron] [1] [electronmon] renderer file change: frontend_live.log
+[dev:electron] [1] [electronmon] renderer file change: frontend_live.log
+[dev:electron] [1] [electronmon] renderer file change: frontend_live.log
+[dev:electron] [1] [electronmon] renderer file change: frontend_live.log
+[dev:electron] [1] [electronmon] renderer file change: frontend_live.log
+[dev:electron] [1] [electronmon] renderer file change: frontend_live.log
+[dev:electron] [1] [electronmon] renderer file change: frontend_live.log
+[dev:electron] [1] [electronmon] renderer file change: frontend_live.log
+[dev:electron] [1] [electronmon] renderer file change: frontend_live.log
+[dev:electron] [1] [electronmon] renderer file change: frontend_live.log
+[dev:electron] [1] [electronmon] renderer file change: frontend_live.log
+[dev:electron] [1] [electronmon] renderer file change: frontend_live.log
+[dev:electron] [1] [electronmon] renderer file change: frontend_live.log
+[dev:electron] [1] [electronmon] renderer file change: frontend_live.log
+[dev:electron] [1] [electronmon] renderer file change: frontend_live.log
+[dev:electron] [1] [electronmon] renderer file change: frontend_live.log
+[dev:electron] [1] [electronmon] renderer file change: frontend_live.log
+[dev:electron] [1] [electronmon] renderer file change: frontend_live.log
+[dev:electron] [1] [electronmon] renderer file change: frontend_live.log
+[dev:electron] [1] [electronmon] renderer file change: frontend_live.log
+[dev:electron] [1] [electronmon] renderer file change: frontend_live.log
+[dev:electron] [1] [electronmon] renderer file change: frontend_live.log
+[dev:electron] [1] [electronmon] renderer file change: frontend_live.log
+[dev:electron] [1] [electronmon] renderer file change: frontend_live.log
+[dev:electron] [1] [electronmon] renderer file change: frontend_live.log
+[dev:electron] [1] [electronmon] renderer file change: frontend_live.log
+[dev:electron] [1] [electronmon] renderer file change: frontend_live.log
+[dev:electron] [1] [electronmon] renderer file change: frontend_live.log
+[dev:electron] [1] [electronmon] renderer file change: frontend_live.log
+[dev:electron] [1] [electronmon] renderer file change: frontend_live.log
+[dev:electron] [1] [electronmon] renderer file change: frontend_live.log
+[dev:electron] [1] [electronmon] renderer file change: frontend_live.log
+[dev:electron] [1] [electronmon] renderer file change: frontend_live.log
+[dev:electron] [1] [electronmon] renderer file change: frontend_live.log
+[dev:electron] [1] [electronmon] renderer file change: frontend_live.log
+[dev:electron] [1] [electronmon] renderer file change: frontend_live.log
+[dev:electron] [1] [electronmon] renderer file change: frontend_live.log
+[dev:electron] [1] [electronmon] renderer file change: frontend_live.log
+[dev:electron] [1] [electronmon] renderer file change: frontend_live.log
+[dev:electron] [1] [electronmon] renderer file change: frontend_live.log
+[dev:electron] [1] [electronmon] renderer file change: frontend_live.log
+[dev:electron] [1] [electronmon] renderer file change: frontend_live.log
+[dev:electron] [1] [electronmon] renderer file change: frontend_live.log
+[dev:electron] [1] [electronmon] renderer file change: frontend_live.log
+[dev:electron] [1] [electronmon] renderer file change: frontend_live.log
+[dev:electron] [1] [electronmon] renderer file change: frontend_live.log
+[dev:electron] [1] [electronmon] renderer file change: frontend_live.log
+[dev:electron] [1] [electronmon] renderer file change: frontend_live.log
+[dev:electron] [1] [electronmon] renderer file change: frontend_live.log
+[dev:electron] [1] [electronmon] renderer file change: frontend_live.log
+[dev:electron] [1] [electronmon] renderer file change: frontend_live.log
+[dev:electron] [1] [electronmon] renderer file change: frontend_live.log
+[dev:electron] [1] [electronmon] renderer file change: frontend_live.log
+[dev:electron] [1] [electronmon] renderer file change: frontend_live.log
+[dev:electron] [1] [electronmon] renderer file change: frontend_live.log
+[dev:electron] [1] [electronmon] renderer file change: frontend_live.log
+[dev:electron] [1] [electronmon] renderer file change: frontend_live.log
+[dev:electron] [1] [electronmon] renderer file change: frontend_live.log
+[dev:electron] [1] [electronmon] renderer file change: frontend_live.log
+[dev:electron] [1] [electronmon] renderer file change: frontend_live.log
+[dev:electron] [1] [electronmon] renderer file change: frontend_live.log
+[dev:electron] [1] [electronmon] renderer file change: frontend_live.log
+[dev:electron] [1] [electronmon] renderer file change: frontend_live.log
+[dev:electron] [1] [electronmon] renderer file change: frontend_live.log
+[dev:electron] [1] [electronmon] renderer file change: frontend_live.log
+[dev:electron] [1] [electronmon] renderer file change: frontend_live.log
+[dev:electron] [1] [electronmon] renderer file change: frontend_live.log
+[dev:electron] [1] [electronmon] renderer file change: frontend_live.log
+[dev:electron] [1] [electronmon] renderer file change: frontend_live.log
+[dev:electron] [1] [electronmon] renderer file change: frontend_live.log
+[dev:electron] [1] [electronmon] renderer file change: frontend_live.log
+[dev:electron] [1] [electronmon] renderer file change: frontend_live.log
+[dev:electron] [1] [electronmon] renderer file change: frontend_live.log
+[dev:electron] [1] [electronmon] renderer file change: frontend_live.log
+[dev:electron] [1] [electronmon] renderer file change: frontend_live.log
+[dev:electron] [1] [electronmon] renderer file change: frontend_live.log
+[dev:electron] [1] [electronmon] renderer file change: frontend_live.log
+[dev:electron] [1] [electronmon] renderer file change: frontend_live.log
+[dev:electron] [1] [electronmon] renderer file change: frontend_live.log
+[dev:electron] [1] [electronmon] renderer file change: frontend_live.log
+[dev:electron] [1] [electronmon] renderer file change: frontend_live.log
+[dev:electron] [1] [electronmon] renderer file change: frontend_live.log
+[dev:electron] [1] [electronmon] renderer file change: frontend_live.log
+[dev:electron] [1] [electronmon] renderer file change: frontend_live.log
+[dev:electron] [1] [electronmon] renderer file change: frontend_live.log
+[dev:electron] [1] [electronmon] renderer file change: frontend_live.log
+[dev:electron] [1] [electronmon] renderer file change: frontend_live.log
+[dev:electron] [1] [electronmon] renderer file change: frontend_live.log
+[dev:electron] [1] [electronmon] renderer file change: frontend_live.log
+[dev:electron] [1] [electronmon] renderer file change: frontend_live.log
+[dev:electron] [1] [electronmon] renderer file change: frontend_live.log
+[dev:electron] [1] [electronmon] renderer file change: frontend_live.log
+[dev:electron] [1] [electronmon] renderer file change: frontend_live.log
+[dev:electron] [1] [electronmon] renderer file change: frontend_live.log
+[dev:electron] [1] [electronmon] renderer file change: frontend_live.log
+[dev:electron] [1] [electronmon] renderer file change: frontend_live.log
+[dev:electron] [1] [electronmon] renderer file change: frontend_live.log
+[dev:electron] [1] [electronmon] renderer file change: frontend_live.log
+[dev:electron] [1] [electronmon] renderer file change: frontend_live.log
+[dev:electron] [1] [electronmon] renderer file change: frontend_live.log
+[dev:electron] [1] [electronmon] renderer file change: frontend_live.log
+[dev:electron] [1] [electronmon] renderer file change: frontend_live.log
+[dev:electron] [1] [electronmon] renderer file change: frontend_live.log
+[dev:electron] [1] [electronmon] renderer file change: frontend_live.log
+[dev:electron] [1] [electronmon] renderer file change: frontend_live.log
+[dev:electron] [1] [electronmon] renderer file change: frontend_live.log
+[dev:electron] [1] [electronmon] renderer file change: frontend_live.log
+[dev:electron] [1] [electronmon] renderer file change: frontend_live.log
+[dev:electron] [1] [electronmon] renderer file change: frontend_live.log
+[dev:electron] [1] [electronmon] renderer file change: frontend_live.log
+[dev:electron] [1] [electronmon] renderer file change: frontend_live.log
+[dev:electron] [1] [electronmon] renderer file change: frontend_live.log
+[dev:electron] [1] [electronmon] renderer file change: frontend_live.log
+[dev:electron] [1] [electronmon] renderer file change: frontend_live.log
+[dev:electron] [1] [electronmon] renderer file change: frontend_live.log
+[dev:electron] [1] [electronmon] renderer file change: frontend_live.log
+[dev:electron] [1] [electronmon] renderer file change: frontend_live.log
+[dev:electron] [1] [electronmon] renderer file change: frontend_live.log
+[dev:electron] [1] [electronmon] renderer file change: frontend_live.log
+[dev:electron] [1] [electronmon] renderer file change: frontend_live.log
+[dev:electron] [1] [electronmon] renderer file change: frontend_live.log
+[dev:electron] [1] [electronmon] renderer file change: frontend_live.log
+[dev:electron] [1] [electronmon] renderer file change: frontend_live.log
+[dev:electron] [1] [electronmon] renderer file change: frontend_live.log
+[dev:electron] [1] [electronmon] renderer file change: frontend_live.log
+[dev:electron] [1] [electronmon] renderer file change: frontend_live.log
+[dev:electron] [1] [electronmon] renderer file change: frontend_live.log
+[dev:electron] [1] [electronmon] renderer file change: frontend_live.log
+[dev:electron] [1] [electronmon] renderer file change: frontend_live.log
+[dev:electron] [1] [electronmon] renderer file change: frontend_live.log
+[dev:electron] [1] [electronmon] renderer file change: frontend_live.log
+[dev:electron] [1] [electronmon] renderer file change: frontend_live.log
+[dev:electron] [1] [electronmon] renderer file change: frontend_live.log
+[dev:electron] [1] [electronmon] renderer file change: frontend_live.log
+[dev:electron] [1] [electronmon] renderer file change: frontend_live.log
+[dev:electron] [1] [electronmon] renderer file change: frontend_live.log
+[dev:electron] [1] [electronmon] renderer file change: frontend_live.log
+[dev:electron] [1] [electronmon] renderer file change: frontend_live.log
+[dev:electron] [1] [electronmon] renderer file change: frontend_live.log
+[dev:electron] [1] [electronmon] renderer file change: frontend_live.log
+[dev:electron] [1] [electronmon] renderer file change: frontend_live.log
+[dev:electron] [1] [electronmon] renderer file change: frontend_live.log
+[dev:electron] [1] [electronmon] renderer file change: frontend_live.log
+[dev:electron] [1] [electronmon] renderer file change: frontend_live.log
+[dev:electron] [1] [electronmon] renderer file change: frontend_live.log
+[dev:electron] [1] [electronmon] renderer file change: frontend_live.log
+[dev:electron] [1] [electronmon] renderer file change: frontend_live.log
+[dev:renderer] npm run dev:renderer exited with code 143
+--> Sending SIGTERM to other processes..
+[dev:electron] [1] [173624:0314/134034.579830:ERROR:network_service_instance_impl.cc(601)] Network service crashed, restarting service.
+[dev:electron] [1] [173624:0314/134034.591627:ERROR:zygote_communication_linux.cc(290)] Failed to send GetTerminationStatus message to zygote
+[dev:electron] [1] [173624:0314/134034.592814:ERROR:gpu_process_host.cc(987)] GPU process launch failed: error_code=1002
+[dev:electron] [1] [173624:0314/134034.593398:ERROR:gpu_process_host.cc(987)] GPU process launch failed: error_code=1002
+[dev:electron] [1] [173624:0314/134034.593731:ERROR:gpu_process_host.cc(987)] GPU process launch failed: error_code=1002
+[dev:electron] [1] [173624:0314/134034.594140:ERROR:gpu_process_host.cc(987)] GPU process launch failed: error_code=1002
+[dev:electron] [1] [173624:0314/134034.594698:ERROR:gpu_process_host.cc(987)] GPU process launch failed: error_code=1002
+[dev:electron] [1] [173624:0314/134034.595126:ERROR:gpu_process_host.cc(987)] GPU process launch failed: error_code=1002
+[dev:electron] [1] [173624:0314/134034.595133:FATAL:gpu_data_manager_impl_private.cc(448)] GPU process isn't usable. Goodbye.
+[dev:electron] [0] tsc -p tsconfig.node.json --watch exited with code SIGTERM
+[dev:electron] --> Sending SIGTERM to other processes..
+[dev:electron] npm run dev:electron exited with code SIGKILL

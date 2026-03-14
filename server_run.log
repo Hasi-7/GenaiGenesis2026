@@ -1,0 +1,19 @@
+2026-03-14 13:39:19,091 input.remote_media_server INFO Listening for frontend media on 0.0.0.0:9100
+WARNING: All log messages before absl::InitializeLog() is called are written to STDERR
+I0000 00:00:1773509959.139965  171579 gl_context_egl.cc:85] Successfully initialized EGL. Major : 1 Minor: 5
+I0000 00:00:1773509959.143424  171876 gl_context.cc:357] GL version: 3.2 (OpenGL ES 3.2 Mesa 25.1.9), renderer: AMD Radeon 890M Graphics (radeonsi, gfx1150, LLVM 20.1.8, DRM 3.64, 6.16.10-200.fc42.x86_64)
+W0000 00:00:1773509959.143928  171579 face_landmarker_graph.cc:174] Sets FaceBlendshapesGraph acceleration to xnnpack by default.
+INFO: Created TensorFlow Lite XNNPACK delegate for CPU.
+W0000 00:00:1773509959.148024  171880 inference_feedback_manager.cc:114] Feedback manager requires a model with a single signature inference. Disabling support for feedback tensors.
+W0000 00:00:1773509959.156106  171894 inference_feedback_manager.cc:114] Feedback manager requires a model with a single signature inference. Disabling support for feedback tensors.
+I0000 00:00:1773509959.164284  171579 gl_context_egl.cc:85] Successfully initialized EGL. Major : 1 Minor: 5
+I0000 00:00:1773509959.166284  171928 gl_context.cc:357] GL version: 3.2 (OpenGL ES 3.2 Mesa 25.1.9), renderer: AMD Radeon 890M Graphics (radeonsi, gfx1150, LLVM 20.1.8, DRM 3.64, 6.16.10-200.fc42.x86_64)
+2026-03-14 13:39:19,167 audio.speech_tone_classifier INFO SpeechToneClassifier using heuristic backend
+W0000 00:00:1773509959.205618  171910 inference_feedback_manager.cc:114] Feedback manager requires a model with a single signature inference. Disabling support for feedback tensors.
+W0000 00:00:1773509959.216848  171923 inference_feedback_manager.cc:114] Feedback manager requires a model with a single signature inference. Disabling support for feedback tensors.
+2026-03-14 13:40:14,628 input.remote_media_server INFO Frontend media client connected from 127.0.0.1:45314; waiting for frames/audio
+2026-03-14 13:40:19,633 input.remote_media_server WARNING Frontend TCP client connected but no media packets received after 5 seconds
+2026-03-14 13:40:34,576 input.remote_media_server INFO Frontend media client disconnected after 19.9s; frames=0 audio=0
+2026-03-14 13:41:26,777 input.remote_media_server INFO Frontend media client connected from 127.0.0.1:56736; waiting for frames/audio
+2026-03-14 13:41:31,782 input.remote_media_server WARNING Frontend TCP client connected but no media packets received after 5 seconds
+2026-03-14 13:41:50,762 input.remote_media_server INFO Frontend media client disconnected after 24.0s; frames=0 audio=0

@@ -18,6 +18,7 @@ def setup_logging() -> None:
     """Configure logging for the project.
 
     - logs/all_logs.log: ALL logs (every logger, every level)
+    - logs/server_latest.log: project logs only, DEBUG and above
     - logs/project_logs.log: project logs only, DEBUG and above
     - logs/info_logs.log: project logs only, INFO only
     - console: project logs only, INFO and above
@@ -29,21 +30,32 @@ def setup_logging() -> None:
 
     # --- File handler: every log from every logger ---
     all_handler = logging.FileHandler(
-        os.path.join(LOG_DIR, "all_logs.log"), mode="w",
+        os.path.join(LOG_DIR, "all_logs.log"),
+        mode="w",
     )
     all_handler.setLevel(logging.DEBUG)
     all_handler.setFormatter(formatter)
 
     # --- File handler: project logs only (DEBUG+) ---
+    server_handler = logging.FileHandler(
+        os.path.join(LOG_DIR, "server_latest.log"),
+        mode="w",
+    )
+    server_handler.setLevel(logging.DEBUG)
+    server_handler.setFormatter(formatter)
+
+    # --- File handler: project logs only (DEBUG+) ---
     project_file_handler = logging.FileHandler(
-        os.path.join(LOG_DIR, "project_logs.log"), mode="w",
+        os.path.join(LOG_DIR, "project_logs.log"),
+        mode="w",
     )
     project_file_handler.setLevel(logging.DEBUG)
     project_file_handler.setFormatter(formatter)
 
     # --- File handler: project INFO logs only ---
     info_handler = logging.FileHandler(
-        os.path.join(LOG_DIR, "info_logs.log"), mode="w",
+        os.path.join(LOG_DIR, "info_logs.log"),
+        mode="w",
     )
     info_handler.setLevel(logging.INFO)
     info_handler.addFilter(_InfoFilter())
@@ -77,6 +89,7 @@ def setup_logging() -> None:
     ]
     for pkg in project_packages:
         pkg_logger = logging.getLogger(pkg)
+        pkg_logger.addHandler(server_handler)
         pkg_logger.addHandler(project_file_handler)
         pkg_logger.addHandler(info_handler)
         pkg_logger.addHandler(console_handler)

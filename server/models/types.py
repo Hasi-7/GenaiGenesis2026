@@ -130,6 +130,10 @@ class PipelineConfig:
     state_tracker_type: str = "rule"  # "rule" or "llm"
     mic_enabled: bool = True
     target_fps: int = 15
+    remote_media_enabled: bool = False
+    remote_media_host: str = "0.0.0.0"
+    remote_media_port: int = 9100
+    renderer_enabled: bool = True
     mirror_listen_host: str = "0.0.0.0"
     mirror_listen_port: int = 9000
     smoothing_window_seconds: float = 10.0
@@ -155,6 +159,20 @@ class PipelineConfig:
             camera_index=0,
             mic_enabled=False,
             target_fps=15,
+            renderer_enabled=False,
             mirror_listen_host="0.0.0.0",
             mirror_listen_port=9000,
+        )
+
+    @staticmethod
+    def server() -> PipelineConfig:
+        return PipelineConfig(
+            environment=Environment.DESKTOP,
+            camera_index=0,
+            mic_enabled=True,
+            target_fps=15,
+            remote_media_enabled=True,
+            remote_media_host="0.0.0.0",
+            remote_media_port=9100,
+            renderer_enabled=False,
         )

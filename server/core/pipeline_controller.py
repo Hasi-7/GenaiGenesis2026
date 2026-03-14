@@ -5,22 +5,20 @@ import time
 from collections.abc import Callable
 from typing import Protocol
 
-from dotenv import load_dotenv
-load_dotenv()
-
-import os
-
 from audio.speech_tone_classifier import SpeechToneClassifier
+from dotenv import load_dotenv
 from input.mic_adapter import LocalMicAdapter
 from input.screenshot_manager import ScreenshotManager
+from models.protocols import MicSource
 from models.types import (
+    CognitiveState,
     FrameAnalysis,
     LLMRequest,
     LLMResponse,
     PipelineConfig,
 )
 from reasoning.llm_engine import LLMEngine
-from state.state_tracker import StateTracker
+from state.state_tracker import StateTrackerProtocol
 from ui.desktop_ui import DesktopUI
 from vision.blink_detector import EarBlinkDetector
 from vision.eye_movement_detector import IrisGazeDetector
@@ -30,17 +28,25 @@ from vision.facial_expression_classifier import (
 )
 from vision.posture_detector import MediaPipePostureDetector
 
+load_dotenv()
+
 logger = logging.getLogger(__name__)
 
 
 class PipelineControllerProtocol(Protocol):
     """Protocol for the pipeline controller."""
 
-    def subscribe(
-        self, callback: Callable[[LLMResponse], None]
-    ) -> None: ...
+    def subscribe(self, callback: Callable[[LLMResponse], None]) -> None: ...
 
     def run(self) -> None: ...
+
+
+class TelemetrySinkProtocol(Protocol):
+    def publish_state(self, state: CognitiveState, analysis: FrameAnalysis) -> None: ...
+
+    def publish_feedback(
+        self, response: LLMResponse, state: CognitiveState
+    ) -> None: ...
 
 
 class PipelineController:
@@ -52,15 +58,18 @@ class PipelineController:
         llm_engine: LLMEngine,
         screenshot_manager: ScreenshotManager,
         state_tracker: StateTrackerProtocol,
+        mic_source: MicSource | None = None,
+        telemetry_sink: TelemetrySinkProtocol | None = None,
     ) -> None:
         self._config = config
         self._llm_engine = llm_engine
         self._screenshot_manager = screenshot_manager
         self._state_tracker = state_tracker
 
-        self._mic: LocalMicAdapter | None = None
-        if config.mic_enabled:
+        self._mic: MicSource | None = mic_source
+        if self._mic is None and config.mic_enabled:
             self._mic = LocalMicAdapter()
+        self._telemetry_sink = telemetry_sink
 
         # Vision
         self._face_detector = FaceLandmarkerTask()
@@ -83,12 +92,12 @@ class PipelineController:
 
         # UI renderer
         self._renderer: DesktopUI | None = (
-            DesktopUI() if config.environment.value == "desktop" else None
+            DesktopUI()
+            if config.environment.value == "desktop" and config.renderer_enabled
+            else None
         )
 
-    def subscribe(
-        self, callback: Callable[[LLMResponse], None]
-    ) -> None:
+    def subscribe(self, callback: Callable[[LLMResponse], None]) -> None:
         """Register a callback invoked on each LLM response."""
         self._subscribers.append(callback)
 
@@ -173,9 +182,7 @@ class PipelineController:
                 f"{len(blendshapes)} faces" if blendshapes else "none",
             )
             if blendshapes:
-                expression = self._expression_classifier.classify(
-                    blendshapes[0]
-                )
+                expression = self._expression_classifier.classify(blendshapes[0])
                 analysis.expression = expression
                 logger.info(
                     "_tick: expression=%s conf=%.2f",
@@ -192,9 +199,7 @@ class PipelineController:
             else "none",
         )
         if posture_data is not None:
-            analysis.posture = self._posture_detector.classify(
-                posture_data
-            )
+            analysis.posture = self._posture_detector.classify(posture_data)
             logger.info(
                 "_tick: posture=%s conf=%.2f",
                 analysis.posture.label,
@@ -209,9 +214,7 @@ class PipelineController:
                 f"{chunk.shape[0]} samples" if chunk is not None else "none",
             )
             if chunk is not None:
-                analysis.speech_tone = (
-                    self._speech_classifier.classify(chunk)
-                )
+                analysis.speech_tone = self._speech_classifier.classify(chunk)
                 logger.info(
                     "_tick: speech_tone=%s conf=%.2f",
                     analysis.speech_tone.label,
@@ -232,6 +235,8 @@ class PipelineController:
             "_tick: detect_transition -> %s",
             "transition" if transition else "none",
         )
+        if self._telemetry_sink is not None:
+            self._telemetry_sink.publish_state(current_state, analysis)
 
         # 9. LLM reasoning on state transition
         if transition is not None:
@@ -241,16 +246,12 @@ class PipelineController:
                 transition.new_state.label.value,
             )
             jpeg_bytes = self._screenshot_manager.encode_jpeg()
-            logger.debug(
-                "_tick: encode_jpeg -> %d bytes", len(jpeg_bytes)
-            )
+            logger.debug("_tick: encode_jpeg -> %d bytes", len(jpeg_bytes))
             request = LLMRequest(
                 frame_jpeg_bytes=jpeg_bytes,
                 current_state=current_state,
                 transition=transition,
-                recent_analyses=(
-                    self._state_tracker.get_recent_analyses(5.0)
-                ),
+                recent_analyses=(self._state_tracker.get_recent_analyses(5.0)),
             )
             response = self._llm_engine.request_feedback(request)
             logger.debug(
@@ -265,6 +266,8 @@ class PipelineController:
                 )
                 print(response.feedback_text)
                 self._notify_subscribers(response)
+                if self._telemetry_sink is not None:
+                    self._telemetry_sink.publish_feedback(response, current_state)
 
         # 10. Render UI
         if self._renderer is not None:
@@ -294,8 +297,8 @@ class PipelineController:
 
 if __name__ == "__main__":
     from config.logging_config import setup_logging
-    from openai import OpenAI
     from input.camera_adapter import LocalCameraAdapter
+    from openai import OpenAI
     from reasoning.llm_engine import RateLimiter
     from state.state_tracker import StateTracker
 
