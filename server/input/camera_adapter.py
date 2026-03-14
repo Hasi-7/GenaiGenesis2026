@@ -20,8 +20,15 @@ class LocalCameraAdapter:
     def read_frame(self) -> NDArray[np.uint8] | None:
         ok, frame = self._capture.read()
         if not ok:
+            logger.info("read_frame: capture read failed")
             return None
         frame_array: NDArray[np.uint8] = np.asarray(frame, dtype=np.uint8)
+        logger.info(
+            "read_frame: %dx%d frame, notifying %d subscribers",
+            frame_array.shape[1],
+            frame_array.shape[0],
+            len(self._subscribers),
+        )
         for callback in self._subscribers:
             try:
                 callback(frame_array)

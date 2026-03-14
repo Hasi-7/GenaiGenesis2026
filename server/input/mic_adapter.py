@@ -55,6 +55,10 @@ class LocalMicAdapter:
                 latest = self._queue.get_nowait()
         except queue.Empty:
             pass
+        if latest is not None:
+            logger.info(
+                "get_latest_chunk: %d samples", latest.shape[0]
+            )
         return latest
 
     @property
@@ -76,6 +80,11 @@ class LocalMicAdapter:
         if status:
             logger.warning("Audio stream status: %s", status)
         chunk: NDArray[np.float32] = indata.copy()
+        logger.info(
+            "_audio_callback: %d samples, notifying %d subscribers",
+            chunk.shape[0],
+            len(self._subscribers),
+        )
         for callback in self._subscribers:
             try:
                 callback(chunk)

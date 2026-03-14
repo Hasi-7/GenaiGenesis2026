@@ -35,6 +35,9 @@ htmlcov/
 .DS_Store
 Thumbs.db
 
+# Logs
+logs/
+
 # Environment
 **/.env/**
 .env
