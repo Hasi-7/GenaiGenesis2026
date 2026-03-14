@@ -127,11 +127,12 @@ int main(int argc, char **argv) {
         capture_status_t status = camera_capture_get_status(&capture);
         fprintf(
             stderr,
-            "Timed out waiting for frame. healthy=%d opened=%d running=%d last_error=%d failures=%llu\n",
+            "Timed out waiting for frame. healthy=%d opened=%d running=%d last_error=%d (%s) failures=%llu\n",
             status.healthy,
             status.opened,
             status.running,
             status.last_error_code,
+            describe_error(status.last_error_code),
             (unsigned long long) status.failure_count
         );
     }

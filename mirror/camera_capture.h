@@ -34,6 +34,10 @@ typedef struct camera_capture_s {
     uint32_t backend_fourcc;
     size_t backend_frame_size_bytes;
     uint8_t *backend_frame_buffer;
+    bool backend_streaming;
+    size_t backend_stream_buffer_count;
+    void *backend_stream_buffers[4];
+    size_t backend_stream_buffer_lengths[4];
 } camera_capture_t;
 
 int camera_capture_init(camera_capture_t *capture, const camera_capture_config_t *config);

@@ -13,6 +13,7 @@
 #if defined(__linux__)
 #include <fcntl.h>
 #include <linux/videodev2.h>
+#include <sys/mman.h>
 #include <sys/ioctl.h>
 #include <sys/select.h>
 #include <unistd.h>
@@ -27,6 +28,15 @@
 
 #define CAMERA_DEVICE_PATH "/dev/video0"
 #define CAMERA_WAIT_TIMEOUT_US 100000
+#define CAMERA_STREAM_BUFFER_COUNT 4U
+
+static const char *camera_device_path(void) {
+    const char *path = getenv("CAMERA_DEVICE_PATH");
+    if (path != NULL && path[0] != '\0') {
+        return path;
+    }
+    return CAMERA_DEVICE_PATH;
+}
 
 static uint64_t now_ns(void) {
     struct timespec ts;
@@ -240,7 +250,7 @@ static int open_backend(camera_capture_t *capture) {
         return CAMERA_CAPTURE_ERR_UNSUPPORTED;
     }
 
-    device_fd = open(CAMERA_DEVICE_PATH, O_RDWR | O_NONBLOCK);
+    device_fd = open(camera_device_path(), O_RDWR | O_NONBLOCK);
     if (device_fd < 0) {
         return errno;
     }
@@ -294,6 +304,62 @@ static int open_backend(camera_capture_t *capture) {
             return CAMERA_CAPTURE_ERR_ALLOC;
         }
 
+        if ((capability.capabilities & V4L2_CAP_STREAMING) != 0U) {
+            struct v4l2_requestbuffers request;
+            size_t buffer_index;
+
+            memset(&request, 0, sizeof(request));
+            request.count = CAMERA_STREAM_BUFFER_COUNT;
+            request.type = V4L2_BUF_TYPE_VIDEO_CAPTURE;
+            request.memory = V4L2_MEMORY_MMAP;
+            if (ioctl(device_fd, VIDIOC_REQBUFS, &request) == 0 && request.count > 0U) {
+                const size_t stream_count = request.count < CAMERA_STREAM_BUFFER_COUNT
+                    ? (size_t) request.count
+                    : CAMERA_STREAM_BUFFER_COUNT;
+
+                for (buffer_index = 0U; buffer_index < stream_count; ++buffer_index) {
+                    struct v4l2_buffer buffer;
+                    void *mapped_buffer;
+
+                    memset(&buffer, 0, sizeof(buffer));
+                    buffer.type = V4L2_BUF_TYPE_VIDEO_CAPTURE;
+                    buffer.memory = V4L2_MEMORY_MMAP;
+                    buffer.index = (uint32_t) buffer_index;
+                    if (ioctl(device_fd, VIDIOC_QUERYBUF, &buffer) < 0) {
+                        break;
+                    }
+
+                    mapped_buffer = mmap(
+                        NULL,
+                        buffer.length,
+                        PROT_READ | PROT_WRITE,
+                        MAP_SHARED,
+                        device_fd,
+                        (off_t) buffer.m.offset
+                    );
+                    if (mapped_buffer == MAP_FAILED) {
+                        break;
+                    }
+
+                    capture->backend_stream_buffers[buffer_index] = mapped_buffer;
+                    capture->backend_stream_buffer_lengths[buffer_index] = buffer.length;
+                    capture->backend_stream_buffer_count = buffer_index + 1U;
+
+                    if (ioctl(device_fd, VIDIOC_QBUF, &buffer) < 0) {
+                        break;
+                    }
+                }
+
+                if (capture->backend_stream_buffer_count > 0U) {
+                    enum v4l2_buf_type stream_type = V4L2_BUF_TYPE_VIDEO_CAPTURE;
+
+                    if (ioctl(device_fd, VIDIOC_STREAMON, &stream_type) == 0) {
+                        capture->backend_streaming = true;
+                    }
+                }
+            }
+        }
+
         capture->backend_fd = device_fd;
         capture->backend_fourcc = format.fmt.pix.pixelformat;
         return CAMERA_CAPTURE_OK;
@@ -304,6 +370,23 @@ static int open_backend(camera_capture_t *capture) {
 }
 
 static void close_backend(camera_capture_t *capture) {
+    if (capture->backend_fd >= 0 && capture->backend_streaming) {
+        enum v4l2_buf_type stream_type = V4L2_BUF_TYPE_VIDEO_CAPTURE;
+        ioctl(capture->backend_fd, VIDIOC_STREAMOFF, &stream_type);
+    }
+    while (capture->backend_stream_buffer_count > 0U) {
+        const size_t buffer_index = capture->backend_stream_buffer_count - 1U;
+        if (capture->backend_stream_buffers[buffer_index] != NULL) {
+            munmap(
+                capture->backend_stream_buffers[buffer_index],
+                capture->backend_stream_buffer_lengths[buffer_index]
+            );
+            capture->backend_stream_buffers[buffer_index] = NULL;
+            capture->backend_stream_buffer_lengths[buffer_index] = 0U;
+        }
+        capture->backend_stream_buffer_count = buffer_index;
+    }
+    capture->backend_streaming = false;
     if (capture->backend_fd >= 0) {
         close(capture->backend_fd);
         capture->backend_fd = -1;
@@ -362,6 +445,61 @@ static int read_device_bytes(camera_capture_t *capture, uint8_t *destination, si
 
     return bytes_read == capacity ? CAMERA_CAPTURE_OK : CAMERA_CAPTURE_ERR_EMPTY;
 }
+
+static int read_stream_frame(camera_capture_t *capture) {
+    struct v4l2_buffer buffer;
+    int wait_result;
+
+    while (!atomic_load(&capture->stop_requested)) {
+        memset(&buffer, 0, sizeof(buffer));
+        buffer.type = V4L2_BUF_TYPE_VIDEO_CAPTURE;
+        buffer.memory = V4L2_MEMORY_MMAP;
+        if (ioctl(capture->backend_fd, VIDIOC_DQBUF, &buffer) == 0) {
+            size_t bytes_to_copy;
+            int queue_result;
+
+            if ((size_t) buffer.index >= capture->backend_stream_buffer_count) {
+                return EINVAL;
+            }
+            bytes_to_copy = (size_t) buffer.bytesused;
+            if (bytes_to_copy == 0U) {
+                queue_result = ioctl(capture->backend_fd, VIDIOC_QBUF, &buffer);
+                if (queue_result < 0) {
+                    return errno;
+                }
+                continue;
+            }
+            if (bytes_to_copy > capture->backend_frame_size_bytes) {
+                bytes_to_copy = capture->backend_frame_size_bytes;
+            }
+
+            memcpy(
+                capture->backend_frame_buffer,
+                capture->backend_stream_buffers[buffer.index],
+                bytes_to_copy
+            );
+
+            queue_result = ioctl(capture->backend_fd, VIDIOC_QBUF, &buffer);
+            if (queue_result < 0) {
+                return errno;
+            }
+            return bytes_to_copy == capture->backend_frame_size_bytes
+                ? CAMERA_CAPTURE_OK
+                : CAMERA_CAPTURE_ERR_EMPTY;
+        }
+
+        if (errno != EAGAIN && errno != EINTR) {
+            return errno;
+        }
+
+        wait_result = wait_for_frame(capture);
+        if (wait_result != CAMERA_CAPTURE_OK) {
+            return wait_result;
+        }
+    }
+
+    return CAMERA_CAPTURE_ERR_EMPTY;
+}
 #endif
 
 /*
@@ -378,7 +516,15 @@ static int read_backend_frame(camera_capture_t *capture, uint8_t *destination, s
         return CAMERA_CAPTURE_ERR_UNSUPPORTED;
     }
 
-    result = read_device_bytes(capture, capture->backend_frame_buffer, capture->backend_frame_size_bytes);
+    if (capture->backend_streaming) {
+        result = read_stream_frame(capture);
+    } else {
+        result = read_device_bytes(
+            capture,
+            capture->backend_frame_buffer,
+            capture->backend_frame_size_bytes
+        );
+    }
     if (result != CAMERA_CAPTURE_OK) {
         return result;
     }
