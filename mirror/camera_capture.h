@@ -3,9 +3,12 @@
 
 #include "capture_types.h"
 
+#include <stdbool.h>
 #include <pthread.h>
 #include <stdatomic.h>
 #include <stddef.h>
+
+#define CAMERA_CAPTURE_MAX_BACKEND_BUFFERS 4U
 
 #ifdef __cplusplus
 extern "C" {
@@ -31,9 +34,16 @@ typedef struct camera_capture_s {
     atomic_bool thread_started;
     capture_status_t status;
     int backend_fd;
+    uint32_t backend_buffer_type;
     uint32_t backend_fourcc;
     size_t backend_frame_size_bytes;
     uint8_t *backend_frame_buffer;
+    bool backend_uses_streaming;
+    bool backend_is_multiplanar;
+    bool backend_streaming_active;
+    size_t backend_mmap_buffer_count;
+    uint8_t *backend_mmap_buffers[CAMERA_CAPTURE_MAX_BACKEND_BUFFERS];
+    size_t backend_mmap_lengths[CAMERA_CAPTURE_MAX_BACKEND_BUFFERS];
 } camera_capture_t;
 
 int camera_capture_init(camera_capture_t *capture, const camera_capture_config_t *config);

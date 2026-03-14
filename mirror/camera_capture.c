@@ -1,3 +1,4 @@
+#define _POSIX_C_SOURCE 200809L
 #include "camera_capture.h"
 
 #include <errno.h>
@@ -11,6 +12,7 @@
 #if defined(__linux__)
 #include <fcntl.h>
 #include <linux/videodev2.h>
+#include <sys/mman.h>
 #include <sys/ioctl.h>
 #include <sys/select.h>
 #include <unistd.h>
@@ -24,6 +26,8 @@
 #define CAMERA_CAPTURE_ERR_EMPTY 5
 
 #define CAMERA_DEVICE_PATH "/dev/video0"
+#define CAMERA_DEVICE_PATH_TEMPLATE "/dev/video%u"
+#define CAMERA_DEVICE_SCAN_LIMIT 16U
 #define CAMERA_WAIT_TIMEOUT_US 100000
 
 static uint64_t now_ns(void) {
@@ -144,7 +148,11 @@ static uint32_t alternate_fourcc(pixel_format_t pixel_format) {
 static size_t backend_frame_size(uint32_t fourcc, uint32_t width, uint32_t height) {
     switch (fourcc) {
         case V4L2_PIX_FMT_YUYV:
+        case V4L2_PIX_FMT_UYVY:
             return (size_t) width * (size_t) height * 2U;
+        case V4L2_PIX_FMT_NV12:
+        case V4L2_PIX_FMT_YUV420:
+            return ((size_t) width * (size_t) height * 3U) / 2U;
         case V4L2_PIX_FMT_RGB24:
         case V4L2_PIX_FMT_BGR24:
             return (size_t) width * (size_t) height * 3U;
@@ -212,6 +220,125 @@ static void convert_yuyv_to_rgb24(const uint8_t *source, uint8_t *destination, u
     }
 }
 
+static void convert_uyvy_to_rgb24(const uint8_t *source, uint8_t *destination, uint32_t width, uint32_t height, bool bgr_output) {
+    size_t pixel_index;
+    const size_t pixel_count = (size_t) width * (size_t) height;
+
+    for (pixel_index = 0; pixel_index + 1U < pixel_count; pixel_index += 2U) {
+        const size_t source_index = pixel_index * 2U;
+        const int u = (int) source[source_index + 0U] - 128;
+        const int y0 = (int) source[source_index + 1U];
+        const int v = (int) source[source_index + 2U] - 128;
+        const int y1 = (int) source[source_index + 3U];
+        const int c0 = y0 - 16;
+        const int c1 = y1 - 16;
+        const int d = u;
+        const int e = v;
+        int red;
+        int green;
+        int blue;
+        size_t destination_index;
+
+        red = (298 * c0 + 409 * e + 128) >> 8;
+        green = (298 * c0 - 100 * d - 208 * e + 128) >> 8;
+        blue = (298 * c0 + 516 * d + 128) >> 8;
+        destination_index = pixel_index * 3U;
+        if (bgr_output) {
+            destination[destination_index + 0U] = clamp_channel(blue);
+            destination[destination_index + 1U] = clamp_channel(green);
+            destination[destination_index + 2U] = clamp_channel(red);
+        } else {
+            destination[destination_index + 0U] = clamp_channel(red);
+            destination[destination_index + 1U] = clamp_channel(green);
+            destination[destination_index + 2U] = clamp_channel(blue);
+        }
+
+        red = (298 * c1 + 409 * e + 128) >> 8;
+        green = (298 * c1 - 100 * d - 208 * e + 128) >> 8;
+        blue = (298 * c1 + 516 * d + 128) >> 8;
+        destination_index += 3U;
+        if (bgr_output) {
+            destination[destination_index + 0U] = clamp_channel(blue);
+            destination[destination_index + 1U] = clamp_channel(green);
+            destination[destination_index + 2U] = clamp_channel(red);
+        } else {
+            destination[destination_index + 0U] = clamp_channel(red);
+            destination[destination_index + 1U] = clamp_channel(green);
+            destination[destination_index + 2U] = clamp_channel(blue);
+        }
+    }
+}
+
+static void convert_nv12_to_rgb24(const uint8_t *source, uint8_t *destination, uint32_t width, uint32_t height, bool bgr_output) {
+    const size_t y_plane_size = (size_t) width * (size_t) height;
+    const uint8_t *uv_plane = source + y_plane_size;
+    uint32_t row;
+
+    for (row = 0U; row < height; ++row) {
+        uint32_t column;
+        for (column = 0U; column < width; ++column) {
+            const size_t y_index = (size_t) row * (size_t) width + (size_t) column;
+            const size_t uv_index = ((size_t) row / 2U) * (size_t) width + (((size_t) column / 2U) * 2U);
+            const int y = (int) source[y_index];
+            const int u = (int) uv_plane[uv_index + 0U] - 128;
+            const int v = (int) uv_plane[uv_index + 1U] - 128;
+            const int c = y - 16;
+            const int d = u;
+            const int e = v;
+            const uint8_t red = clamp_channel((298 * c + 409 * e + 128) >> 8);
+            const uint8_t green = clamp_channel((298 * c - 100 * d - 208 * e + 128) >> 8);
+            const uint8_t blue = clamp_channel((298 * c + 516 * d + 128) >> 8);
+            const size_t destination_index = y_index * 3U;
+
+            if (bgr_output) {
+                destination[destination_index + 0U] = blue;
+                destination[destination_index + 1U] = green;
+                destination[destination_index + 2U] = red;
+            } else {
+                destination[destination_index + 0U] = red;
+                destination[destination_index + 1U] = green;
+                destination[destination_index + 2U] = blue;
+            }
+        }
+    }
+}
+
+static void convert_yuv420_to_rgb24(const uint8_t *source, uint8_t *destination, uint32_t width, uint32_t height, bool bgr_output) {
+    const size_t y_plane_size = (size_t) width * (size_t) height;
+    const size_t chroma_plane_size = y_plane_size / 4U;
+    const uint8_t *u_plane = source + y_plane_size;
+    const uint8_t *v_plane = u_plane + chroma_plane_size;
+    uint32_t row;
+
+    for (row = 0U; row < height; ++row) {
+        uint32_t column;
+        for (column = 0U; column < width; ++column) {
+            const size_t y_index = (size_t) row * (size_t) width + (size_t) column;
+            const size_t uv_index = ((size_t) row / 2U) * ((size_t) width / 2U) + ((size_t) column / 2U);
+            const int y = (int) source[y_index];
+            const int u = (int) u_plane[uv_index] - 128;
+            const int v = (int) v_plane[uv_index] - 128;
+            const int c = y - 16;
+            const int d = u;
+            const int e = v;
+            const uint8_t red = clamp_channel((298 * c + 409 * e + 128) >> 8);
+            const uint8_t green = clamp_channel((298 * c - 100 * d - 208 * e + 128) >> 8);
+            const uint8_t blue = clamp_channel((298 * c + 516 * d + 128) >> 8);
+            const size_t destination_index = y_index * 3U;
+
+            if (bgr_output) {
+                destination[destination_index + 0U] = blue;
+                destination[destination_index + 1U] = green;
+                destination[destination_index + 2U] = red;
+            } else {
+                destination[destination_index + 0U] = red;
+                destination[destination_index + 1U] = green;
+                destination[destination_index + 2U] = blue;
+            }
+        }
+    }
+}
+
 static void swap_rgb_channels(const uint8_t *source, uint8_t *destination, size_t pixel_count) {
     size_t pixel_index;
 
@@ -223,11 +350,193 @@ static void swap_rgb_channels(const uint8_t *source, uint8_t *destination, size_
     }
 }
 
-static int open_backend(camera_capture_t *capture) {
+static void close_backend(camera_capture_t *capture);
+
+static int queue_buffer(camera_capture_t *capture, uint32_t index) {
+    struct v4l2_buffer buffer;
+    struct v4l2_plane planes[VIDEO_MAX_PLANES];
+
+    memset(&buffer, 0, sizeof(buffer));
+    memset(planes, 0, sizeof(planes));
+    buffer.type = capture->backend_buffer_type;
+    buffer.memory = V4L2_MEMORY_MMAP;
+    buffer.index = index;
+    if (capture->backend_is_multiplanar) {
+        buffer.length = VIDEO_MAX_PLANES;
+        buffer.m.planes = planes;
+    }
+
+    if (ioctl(capture->backend_fd, VIDIOC_QBUF, &buffer) < 0) {
+        return errno;
+    }
+    return CAMERA_CAPTURE_OK;
+}
+
+static int unmap_backend_buffers(camera_capture_t *capture) {
+    size_t index;
+
+    for (index = 0U; index < capture->backend_mmap_buffer_count; ++index) {
+        if (capture->backend_mmap_buffers[index] != NULL && capture->backend_mmap_lengths[index] > 0U) {
+            if (munmap(capture->backend_mmap_buffers[index], capture->backend_mmap_lengths[index]) < 0) {
+                return errno;
+            }
+            capture->backend_mmap_buffers[index] = NULL;
+            capture->backend_mmap_lengths[index] = 0U;
+        }
+    }
+
+    capture->backend_mmap_buffer_count = 0U;
+    return CAMERA_CAPTURE_OK;
+}
+
+static int start_streaming_backend(camera_capture_t *capture) {
+    struct v4l2_requestbuffers request;
+    uint32_t stream_type;
+    uint32_t index;
+
+    memset(&request, 0, sizeof(request));
+    request.count = CAMERA_CAPTURE_MAX_BACKEND_BUFFERS;
+    request.type = capture->backend_buffer_type;
+    request.memory = V4L2_MEMORY_MMAP;
+    if (ioctl(capture->backend_fd, VIDIOC_REQBUFS, &request) < 0) {
+        return errno;
+    }
+    if (request.count == 0U) {
+        return CAMERA_CAPTURE_ERR_UNSUPPORTED;
+    }
+
+    capture->backend_mmap_buffer_count = request.count;
+    for (index = 0U; index < request.count; ++index) {
+        struct v4l2_buffer buffer;
+        struct v4l2_plane planes[VIDEO_MAX_PLANES];
+        size_t length;
+        off_t offset;
+        void *mapping;
+
+        memset(&buffer, 0, sizeof(buffer));
+        memset(planes, 0, sizeof(planes));
+        buffer.type = capture->backend_buffer_type;
+        buffer.memory = V4L2_MEMORY_MMAP;
+        buffer.index = index;
+        if (capture->backend_is_multiplanar) {
+            buffer.length = VIDEO_MAX_PLANES;
+            buffer.m.planes = planes;
+        }
+
+        if (ioctl(capture->backend_fd, VIDIOC_QUERYBUF, &buffer) < 0) {
+            return errno;
+        }
+
+        if (capture->backend_is_multiplanar) {
+            if (buffer.length == 0U) {
+                return CAMERA_CAPTURE_ERR_UNSUPPORTED;
+            }
+            length = buffer.m.planes[0].length;
+            offset = (off_t) buffer.m.planes[0].m.mem_offset;
+        } else {
+            length = buffer.length;
+            offset = (off_t) buffer.m.offset;
+        }
+
+        mapping = mmap(NULL, length, PROT_READ | PROT_WRITE, MAP_SHARED, capture->backend_fd, offset);
+        if (mapping == MAP_FAILED) {
+            return errno;
+        }
+
+        capture->backend_mmap_buffers[index] = mapping;
+        capture->backend_mmap_lengths[index] = length;
+
+        {
+            const int queue_result = queue_buffer(capture, index);
+            if (queue_result != CAMERA_CAPTURE_OK) {
+                return queue_result;
+            }
+        }
+    }
+
+    stream_type = capture->backend_buffer_type;
+    if (ioctl(capture->backend_fd, VIDIOC_STREAMON, &stream_type) < 0) {
+        return errno;
+    }
+
+    capture->backend_streaming_active = true;
+    return CAMERA_CAPTURE_OK;
+}
+
+static int setup_backend_io(camera_capture_t *capture, uint32_t effective_capabilities) {
+    if ((effective_capabilities & V4L2_CAP_READWRITE) != 0U && !capture->backend_is_multiplanar) {
+        capture->backend_uses_streaming = false;
+        return CAMERA_CAPTURE_OK;
+    }
+    if ((effective_capabilities & V4L2_CAP_STREAMING) == 0U) {
+        return CAMERA_CAPTURE_ERR_UNSUPPORTED;
+    }
+    capture->backend_uses_streaming = true;
+    return start_streaming_backend(capture);
+}
+
+static int configure_format_candidate(camera_capture_t *capture, int device_fd, uint32_t candidate) {
+    const bool multiplanar = capture->backend_is_multiplanar;
+    struct v4l2_format format;
+    uint32_t actual_width;
+    uint32_t actual_height;
+    uint32_t actual_fourcc;
+
+    memset(&format, 0, sizeof(format));
+    format.type = capture->backend_buffer_type;
+    if (multiplanar) {
+        format.fmt.pix_mp.width = capture->config.width;
+        format.fmt.pix_mp.height = capture->config.height;
+        format.fmt.pix_mp.field = V4L2_FIELD_NONE;
+        format.fmt.pix_mp.pixelformat = candidate;
+        format.fmt.pix_mp.num_planes = 1U;
+    } else {
+        format.fmt.pix.width = capture->config.width;
+        format.fmt.pix.height = capture->config.height;
+        format.fmt.pix.field = V4L2_FIELD_NONE;
+        format.fmt.pix.pixelformat = candidate;
+    }
+
+    if (ioctl(device_fd, VIDIOC_S_FMT, &format) < 0) {
+        return errno;
+    }
+
+    if (multiplanar) {
+        actual_width = format.fmt.pix_mp.width;
+        actual_height = format.fmt.pix_mp.height;
+        actual_fourcc = format.fmt.pix_mp.pixelformat;
+    } else {
+        actual_width = format.fmt.pix.width;
+        actual_height = format.fmt.pix.height;
+        actual_fourcc = format.fmt.pix.pixelformat;
+    }
+
+    if (actual_width != capture->config.width || actual_height != capture->config.height) {
+        return CAMERA_CAPTURE_ERR_UNSUPPORTED;
+    }
+
+    capture->backend_frame_size_bytes = backend_frame_size(actual_fourcc, actual_width, actual_height);
+    if (capture->backend_frame_size_bytes == 0U) {
+        return CAMERA_CAPTURE_ERR_UNSUPPORTED;
+    }
+
+    capture->backend_fourcc = actual_fourcc;
+    return CAMERA_CAPTURE_OK;
+}
+
+static int open_backend_device(camera_capture_t *capture, const char *device_path) {
     struct v4l2_capability capability;
+    uint32_t effective_capabilities;
     const uint32_t desired_fourcc = requested_fourcc(capture->config.pixel_format);
     const uint32_t fallback_fourcc = alternate_fourcc(capture->config.pixel_format);
-    const uint32_t candidates[3] = {desired_fourcc, fallback_fourcc, V4L2_PIX_FMT_YUYV};
+    const uint32_t candidates[6] = {
+        desired_fourcc,
+        fallback_fourcc,
+        V4L2_PIX_FMT_YUYV,
+        V4L2_PIX_FMT_UYVY,
+        V4L2_PIX_FMT_NV12,
+        V4L2_PIX_FMT_YUV420
+    };
     size_t index;
     int device_fd;
 
@@ -238,7 +547,7 @@ static int open_backend(camera_capture_t *capture) {
         return CAMERA_CAPTURE_ERR_UNSUPPORTED;
     }
 
-    device_fd = open(CAMERA_DEVICE_PATH, O_RDWR | O_NONBLOCK);
+    device_fd = open(device_path, O_RDWR | O_NONBLOCK);
     if (device_fd < 0) {
         return errno;
     }
@@ -249,41 +558,33 @@ static int open_backend(camera_capture_t *capture) {
         close(device_fd);
         return error_code;
     }
-    if ((capability.capabilities & V4L2_CAP_VIDEO_CAPTURE) == 0U) {
-        close(device_fd);
-        return CAMERA_CAPTURE_ERR_UNSUPPORTED;
+    effective_capabilities = capability.capabilities;
+    if ((effective_capabilities & V4L2_CAP_DEVICE_CAPS) != 0U) {
+        effective_capabilities = capability.device_caps;
     }
 
-    for (index = 0U; index < 3U; ++index) {
-        struct v4l2_format format;
-
-        memset(&format, 0, sizeof(format));
-        format.type = V4L2_BUF_TYPE_VIDEO_CAPTURE;
-        format.fmt.pix.width = capture->config.width;
-        format.fmt.pix.height = capture->config.height;
-        format.fmt.pix.field = V4L2_FIELD_NONE;
-        format.fmt.pix.pixelformat = candidates[index];
-        if (format.fmt.pix.pixelformat == 0U) {
-            continue;
-        }
-        if (ioctl(device_fd, VIDIOC_S_FMT, &format) < 0) {
-            continue;
-        }
-        if (format.fmt.pix.width != capture->config.width || format.fmt.pix.height != capture->config.height) {
-            continue;
-        }
-        if (format.fmt.pix.pixelformat != candidates[index]) {
-            continue;
-        }
-
-        capture->backend_frame_size_bytes = backend_frame_size(
-            format.fmt.pix.pixelformat,
-            capture->config.width,
-            capture->config.height
-        );
-        if (capture->backend_frame_size_bytes == 0U) {
+    if ((effective_capabilities & V4L2_CAP_VIDEO_CAPTURE) == 0U) {
+        if ((effective_capabilities & V4L2_CAP_VIDEO_CAPTURE_MPLANE) != 0U) {
+            capture->backend_buffer_type = V4L2_BUF_TYPE_VIDEO_CAPTURE_MPLANE;
+            capture->backend_is_multiplanar = true;
+        } else {
             close(device_fd);
             return CAMERA_CAPTURE_ERR_UNSUPPORTED;
+        }
+    } else {
+        capture->backend_buffer_type = V4L2_BUF_TYPE_VIDEO_CAPTURE;
+        capture->backend_is_multiplanar = false;
+    }
+
+    for (index = 0U; index < 6U; ++index) {
+        int configure_result;
+
+        if (candidates[index] == 0U) {
+            continue;
+        }
+        configure_result = configure_format_candidate(capture, device_fd, candidates[index]);
+        if (configure_result != CAMERA_CAPTURE_OK) {
+            continue;
         }
 
         capture->backend_frame_buffer = malloc(capture->backend_frame_size_bytes);
@@ -293,7 +594,12 @@ static int open_backend(camera_capture_t *capture) {
         }
 
         capture->backend_fd = device_fd;
-        capture->backend_fourcc = format.fmt.pix.pixelformat;
+        configure_result = setup_backend_io(capture, effective_capabilities);
+        if (configure_result != CAMERA_CAPTURE_OK) {
+            close_backend(capture);
+            continue;
+        }
+
         return CAMERA_CAPTURE_OK;
     }
 
@@ -301,7 +607,46 @@ static int open_backend(camera_capture_t *capture) {
     return CAMERA_CAPTURE_ERR_UNSUPPORTED;
 }
 
+static int open_backend(camera_capture_t *capture) {
+    const char *requested_path = getenv("CAMERA_CAPTURE_DEVICE");
+    int result;
+    unsigned int device_index;
+
+    if (requested_path != NULL && requested_path[0] != '\0') {
+        return open_backend_device(capture, requested_path);
+    }
+
+    result = open_backend_device(capture, CAMERA_DEVICE_PATH);
+    if (result == CAMERA_CAPTURE_OK) {
+        return CAMERA_CAPTURE_OK;
+    }
+    if (result != CAMERA_CAPTURE_ERR_UNSUPPORTED && result != ENOENT) {
+        return result;
+    }
+
+    for (device_index = 1U; device_index < CAMERA_DEVICE_SCAN_LIMIT; ++device_index) {
+        char device_path[32];
+
+        snprintf(device_path, sizeof(device_path), CAMERA_DEVICE_PATH_TEMPLATE, device_index);
+        result = open_backend_device(capture, device_path);
+        if (result == CAMERA_CAPTURE_OK) {
+            return CAMERA_CAPTURE_OK;
+        }
+        if (result != CAMERA_CAPTURE_ERR_UNSUPPORTED && result != ENOENT) {
+            return result;
+        }
+    }
+
+    return CAMERA_CAPTURE_ERR_UNSUPPORTED;
+}
+
 static void close_backend(camera_capture_t *capture) {
+    if (capture->backend_streaming_active) {
+        uint32_t stream_type = capture->backend_buffer_type;
+        ioctl(capture->backend_fd, VIDIOC_STREAMOFF, &stream_type);
+        capture->backend_streaming_active = false;
+    }
+    unmap_backend_buffers(capture);
     if (capture->backend_fd >= 0) {
         close(capture->backend_fd);
         capture->backend_fd = -1;
@@ -309,7 +654,10 @@ static void close_backend(camera_capture_t *capture) {
     free(capture->backend_frame_buffer);
     capture->backend_frame_buffer = NULL;
     capture->backend_frame_size_bytes = 0U;
+    capture->backend_buffer_type = 0U;
     capture->backend_fourcc = 0U;
+    capture->backend_uses_streaming = false;
+    capture->backend_is_multiplanar = false;
 }
 
 static int wait_for_frame(camera_capture_t *capture) {
@@ -360,6 +708,61 @@ static int read_device_bytes(camera_capture_t *capture, uint8_t *destination, si
 
     return bytes_read == capacity ? CAMERA_CAPTURE_OK : CAMERA_CAPTURE_ERR_EMPTY;
 }
+
+static int dequeue_streaming_buffer(camera_capture_t *capture, struct v4l2_buffer *buffer, struct v4l2_plane *planes, size_t plane_count) {
+    memset(buffer, 0, sizeof(*buffer));
+    memset(planes, 0, sizeof(*planes) * plane_count);
+    buffer->type = capture->backend_buffer_type;
+    buffer->memory = V4L2_MEMORY_MMAP;
+    if (capture->backend_is_multiplanar) {
+        buffer->length = plane_count;
+        buffer->m.planes = planes;
+    }
+
+    while (!atomic_load(&capture->stop_requested)) {
+        if (ioctl(capture->backend_fd, VIDIOC_DQBUF, buffer) == 0) {
+            return CAMERA_CAPTURE_OK;
+        }
+        if (errno == EAGAIN || errno == EINTR) {
+            const int wait_result = wait_for_frame(capture);
+            if (wait_result != CAMERA_CAPTURE_OK) {
+                return wait_result;
+            }
+            continue;
+        }
+        return errno;
+    }
+
+    return CAMERA_CAPTURE_ERR_EMPTY;
+}
+
+static int read_streaming_bytes(camera_capture_t *capture, uint8_t *destination, size_t capacity) {
+    struct v4l2_buffer buffer;
+    struct v4l2_plane planes[VIDEO_MAX_PLANES];
+    const uint8_t *source;
+    size_t bytes_used;
+    int result;
+
+    result = dequeue_streaming_buffer(capture, &buffer, planes, VIDEO_MAX_PLANES);
+    if (result != CAMERA_CAPTURE_OK) {
+        return result;
+    }
+    if (buffer.index >= capture->backend_mmap_buffer_count || capture->backend_mmap_buffers[buffer.index] == NULL) {
+        queue_buffer(capture, buffer.index);
+        return CAMERA_CAPTURE_ERR_UNSUPPORTED;
+    }
+
+    source = capture->backend_mmap_buffers[buffer.index];
+    bytes_used = capture->backend_is_multiplanar ? buffer.m.planes[0].bytesused : buffer.bytesused;
+    if (bytes_used < capacity) {
+        queue_buffer(capture, buffer.index);
+        return CAMERA_CAPTURE_ERR_EMPTY;
+    }
+
+    memcpy(destination, source, capacity);
+    result = queue_buffer(capture, buffer.index);
+    return result == CAMERA_CAPTURE_OK ? CAMERA_CAPTURE_OK : result;
+}
 #endif
 
 /*
@@ -376,7 +779,11 @@ static int read_backend_frame(camera_capture_t *capture, uint8_t *destination, s
         return CAMERA_CAPTURE_ERR_UNSUPPORTED;
     }
 
-    result = read_device_bytes(capture, capture->backend_frame_buffer, capture->backend_frame_size_bytes);
+    if (capture->backend_uses_streaming) {
+        result = read_streaming_bytes(capture, capture->backend_frame_buffer, capture->backend_frame_size_bytes);
+    } else {
+        result = read_device_bytes(capture, capture->backend_frame_buffer, capture->backend_frame_size_bytes);
+    }
     if (result != CAMERA_CAPTURE_OK) {
         return result;
     }
@@ -398,6 +805,33 @@ static int read_backend_frame(camera_capture_t *capture, uint8_t *destination, s
             return CAMERA_CAPTURE_OK;
         case V4L2_PIX_FMT_YUYV:
             convert_yuyv_to_rgb24(
+                capture->backend_frame_buffer,
+                destination,
+                capture->config.width,
+                capture->config.height,
+                capture->config.pixel_format == PIXEL_FORMAT_BGR24
+            );
+            return CAMERA_CAPTURE_OK;
+        case V4L2_PIX_FMT_UYVY:
+            convert_uyvy_to_rgb24(
+                capture->backend_frame_buffer,
+                destination,
+                capture->config.width,
+                capture->config.height,
+                capture->config.pixel_format == PIXEL_FORMAT_BGR24
+            );
+            return CAMERA_CAPTURE_OK;
+        case V4L2_PIX_FMT_NV12:
+            convert_nv12_to_rgb24(
+                capture->backend_frame_buffer,
+                destination,
+                capture->config.width,
+                capture->config.height,
+                capture->config.pixel_format == PIXEL_FORMAT_BGR24
+            );
+            return CAMERA_CAPTURE_OK;
+        case V4L2_PIX_FMT_YUV420:
+            convert_yuv420_to_rgb24(
                 capture->backend_frame_buffer,
                 destination,
                 capture->config.width,
