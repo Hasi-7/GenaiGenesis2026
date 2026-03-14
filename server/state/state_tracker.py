@@ -5,7 +5,7 @@ from collections import deque
 from collections.abc import Sequence
 from typing import Protocol
 
-from server.models.types import (
+from models.types import (
     ClassifierResult,
     CognitiveState,
     CognitiveStateLabel,

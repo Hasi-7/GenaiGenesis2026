@@ -26,6 +26,7 @@ from vision.facial_expression_classifier import (
     BlendshapeExpressionClassifier,
 )
 from vision.posture_detector import MediaPipePostureDetector
+from ui.desktop_ui import DesktopUI
 
 logger = logging.getLogger(__name__)
 
@@ -81,6 +82,11 @@ class PipelineController:
         # Latest LLM response for UI
         self._last_response: LLMResponse | None = None
 
+        # UI renderer
+        self._renderer: DesktopUI | None = (
+            DesktopUI() if config.environment.value == "desktop" else None
+        )
+
     def subscribe(
         self, callback: Callable[[LLMResponse], None]
     ) -> None:
@@ -106,6 +112,9 @@ class PipelineController:
                 sleep_time = frame_interval - elapsed
                 if sleep_time > 0:
                     time.sleep(sleep_time)
+                if self._renderer is not None and self._renderer.should_quit():
+                    logger.info("User quit via UI")
+                    break
         except KeyboardInterrupt:
             logger.info("Pipeline interrupted")
         finally:
@@ -258,6 +267,15 @@ class PipelineController:
                 print(response.feedback_text)
                 self._notify_subscribers(response)
 
+        # 10. Render UI
+        if self._renderer is not None:
+            self._renderer.render(
+                bgr_frame,
+                current_state,
+                self._last_response,
+                analysis,
+            )
+
     def _encode_jpeg(
         self, bgr_frame: NDArray[np.uint8]
     ) -> bytes:
@@ -279,6 +297,8 @@ class PipelineController:
         self._camera.release()
         self._face_detector.close()
         self._posture_detector.close()
+        if self._renderer is not None:
+            self._renderer.destroy()
 
 
 if __name__ == "__main__":

@@ -7,7 +7,7 @@ from models.types import ClassifierResult
 from numpy.typing import NDArray
 from transformers import pipeline  # type: ignore[import-untyped]
 
-<<<<<<< HEAD
+
 
 class SpeechToneClassifierProtocol(Protocol):
     """Protocol for speech tone classification from audio."""
@@ -23,9 +23,6 @@ class SpeechToneClassifierProtocol(Protocol):
         Labels: "calm", "stressed", "monotone", "silent".
         """
         ...
-=======
-from server.models.types import ClassifierResult
->>>>>>> 73cc6fe (pre revert)
 
 # Maps HuggingFace emotion labels to protocol labels.
 _EMOTION_TO_TONE: dict[str, str] = {
@@ -39,7 +36,7 @@ _EMOTION_TO_TONE: dict[str, str] = {
 }
 
 _MODEL_SAMPLE_RATE = 16_000
-_SILENCE_RMS_THRESHOLD = 0.01
+_SILENCE_RMS_THRESHOLD = 0.001
 
 
 class SpeechToneClassifier:
@@ -60,6 +57,10 @@ class SpeechToneClassifier:
 
         Labels: "calm", "stressed", "monotone", "silent".
         """
+
+        # Flatten to 1D — mic adapter delivers shape (N, channels)
+        audio_chunk = audio_chunk.squeeze()
+
         if _is_silent(audio_chunk):
             return ClassifierResult(label="silent", confidence=1.0)
 
@@ -83,6 +84,14 @@ class SpeechToneClassifier:
 
         best_label = max(tone_scores, key=lambda k: tone_scores[k])
         return ClassifierResult(label=best_label, confidence=tone_scores[best_label])
+
+
+def _to_mono(audio: NDArray[np.float32]) -> NDArray[np.float32]:
+    """Convert multi-channel audio to 1-D mono by averaging channels."""
+    if audio.ndim == 1:
+        return audio
+    # (N, channels) → average across channels → (N,)
+    return audio.mean(axis=1).astype(np.float32)
 
 
 def _is_silent(audio: NDArray[np.float32]) -> bool:
