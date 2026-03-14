@@ -15,6 +15,7 @@
 #include <unistd.h>
 
 #define FRAME_MAGIC "CSJ1"
+#define EVENT_MAGIC "CSM1"
 #define FRAME_HEADER_SIZE 24U
 #define DEFAULT_PORT 9000
 #define DEFAULT_WIDTH 640U
@@ -23,6 +24,18 @@
 #define PIPE_READ_CHUNK 4096U
 #define INITIAL_FRAME_CAPACITY (256U * 1024U)
 #define MAX_FRAME_CAPACITY (8U * 1024U * 1024U)
+#define CONTROL_BUFFER_CAPACITY 4096U
+
+#define EVENT_HELLO 1U
+#define EVENT_STATE 2U
+#define EVENT_FEEDBACK 3U
+
+#define HELLO_VERSION 1U
+#define SOURCE_MIRROR 2U
+
+#define CAPABILITY_SEND_VIDEO (1U << 0)
+#define CAPABILITY_RECEIVE_STATE (1U << 2)
+#define CAPABILITY_BINARY_CONTROL (1U << 4)
 
 static uint64_t now_ns(void) {
     struct timespec ts;
@@ -47,6 +60,13 @@ static void write_be64(uint8_t *buffer, uint64_t value) {
     buffer[5] = (uint8_t) ((value >> 16U) & 0xffU);
     buffer[6] = (uint8_t) ((value >> 8U) & 0xffU);
     buffer[7] = (uint8_t) (value & 0xffU);
+}
+
+static uint32_t read_be32(const uint8_t *buffer) {
+    return ((uint32_t) buffer[0] << 24U)
+        | ((uint32_t) buffer[1] << 16U)
+        | ((uint32_t) buffer[2] << 8U)
+        | (uint32_t) buffer[3];
 }
 
 static bool find_command_on_path(
@@ -247,6 +267,256 @@ static bool send_frame_packet(
         && send_all(socket_fd, frame_bytes, frame_size);
 }
 
+static bool send_control_packet(
+    int socket_fd,
+    uint32_t message_type,
+    uint32_t flags,
+    const uint8_t *payload,
+    size_t payload_size
+) {
+    uint8_t header[FRAME_HEADER_SIZE];
+
+    memcpy(header, EVENT_MAGIC, 4U);
+    write_be32(header + 4U, message_type);
+    write_be32(header + 8U, flags);
+    write_be32(header + 12U, (uint32_t) payload_size);
+    write_be64(header + 16U, now_ns());
+
+    return send_all(socket_fd, header, sizeof(header))
+        && send_all(socket_fd, payload, payload_size);
+}
+
+static bool send_hello_packet(int socket_fd) {
+    uint8_t payload[4] = {HELLO_VERSION, SOURCE_MIRROR, 0U, 0U};
+    const uint32_t flags = CAPABILITY_SEND_VIDEO
+        | CAPABILITY_RECEIVE_STATE
+        | CAPABILITY_BINARY_CONTROL;
+
+    return send_control_packet(
+        socket_fd,
+        EVENT_HELLO,
+        flags,
+        payload,
+        sizeof(payload)
+    );
+}
+
+static const char *state_label(uint8_t state_id) {
+    switch (state_id) {
+        case 1U:
+            return "focused";
+        case 2U:
+            return "fatigued";
+        case 3U:
+            return "stressed";
+        case 4U:
+            return "distracted";
+        default:
+            return "unknown";
+    }
+}
+
+static const char *indicator_label(uint8_t indicator_id) {
+    switch (indicator_id) {
+        case 1U:
+            return "blink rate elevated";
+        case 2U:
+            return "blink rate suppressed";
+        case 3U:
+            return "posture slouched";
+        case 4U:
+            return "posture leaning";
+        case 5U:
+            return "eye movement distracted";
+        case 6U:
+            return "facial tension detected";
+        case 7U:
+            return "speech tone stressed";
+        case 8U:
+            return "speech tone monotone";
+        case 9U:
+            return "posture upright";
+        case 10U:
+            return "eye engagement focused";
+        case 11U:
+            return "facial expression relaxed";
+        case 12U:
+            return "speech tone calm";
+        default:
+            return NULL;
+    }
+}
+
+static const char *recommendation_label(uint8_t recommendation_id) {
+    switch (recommendation_id) {
+        case 1U:
+            return "take a 10 minute break";
+        case 2U:
+            return "hydrate";
+        case 3U:
+            return "stretch and reset posture";
+        case 4U:
+            return "take a breathing pause";
+        case 5U:
+            return "refocus on one task";
+        case 6U:
+            return "silence distractions";
+        case 7U:
+            return "keep your current pace";
+        case 8U:
+            return "reset your posture";
+        default:
+            return NULL;
+    }
+}
+
+static void drain_control_packets(
+    int socket_fd,
+    uint8_t *control_buffer,
+    size_t *control_size,
+    uint8_t *last_state_id,
+    uint8_t *last_confidence,
+    uint8_t *last_indicator_1,
+    uint8_t *last_indicator_2,
+    uint8_t *last_indicator_3,
+    uint8_t *last_recommendation_1,
+    uint8_t *last_recommendation_2,
+    uint8_t *last_recommendation_3
+) {
+    while (true) {
+        const ssize_t bytes_read = recv(
+            socket_fd,
+            control_buffer + *control_size,
+            CONTROL_BUFFER_CAPACITY - *control_size,
+            MSG_DONTWAIT
+        );
+
+        if (bytes_read < 0) {
+            if (errno == EINTR) {
+                continue;
+            }
+            if (errno == EAGAIN || errno == EWOULDBLOCK) {
+                break;
+            }
+            fprintf(stderr, "Control receive failed: %s\n", strerror(errno));
+            break;
+        }
+
+        if (bytes_read == 0) {
+            break;
+        }
+
+        *control_size += (size_t) bytes_read;
+        while (*control_size >= FRAME_HEADER_SIZE) {
+            const uint32_t payload_size = read_be32(control_buffer + 12U);
+            const size_t packet_size = FRAME_HEADER_SIZE + (size_t) payload_size;
+            if (*control_size < packet_size) {
+                break;
+            }
+
+            if (
+                memcmp(control_buffer, EVENT_MAGIC, 4U) == 0
+                && read_be32(control_buffer + 4U) == EVENT_STATE
+                && payload_size >= 8U
+            ) {
+                const uint8_t *payload = control_buffer + FRAME_HEADER_SIZE;
+                const uint8_t state_id = payload[1];
+                const uint8_t confidence = payload[2];
+                const uint8_t indicator_1 = payload_size >= 11U ? payload[8] : 0U;
+                const uint8_t indicator_2 = payload_size >= 11U ? payload[9] : 0U;
+                const uint8_t indicator_3 = payload_size >= 11U ? payload[10] : 0U;
+                const uint8_t recommendation_1 = payload_size >= 14U ? payload[11] : 0U;
+                const uint8_t recommendation_2 = payload_size >= 14U ? payload[12] : 0U;
+                const uint8_t recommendation_3 = payload_size >= 14U ? payload[13] : 0U;
+
+                if (
+                    *last_state_id != state_id
+                    || *last_confidence != confidence
+                    || *last_indicator_1 != indicator_1
+                    || *last_indicator_2 != indicator_2
+                    || *last_indicator_3 != indicator_3
+                    || *last_recommendation_1 != recommendation_1
+                    || *last_recommendation_2 != recommendation_2
+                    || *last_recommendation_3 != recommendation_3
+                ) {
+                    const char *indicator_1_text = indicator_label(indicator_1);
+                    const char *indicator_2_text = indicator_label(indicator_2);
+                    const char *indicator_3_text = indicator_label(indicator_3);
+                    const char *recommendation_1_text = recommendation_label(recommendation_1);
+                    const char *recommendation_2_text = recommendation_label(recommendation_2);
+                    const char *recommendation_3_text = recommendation_label(recommendation_3);
+
+                    printf(
+                        "Server state: %s (%u%%)\n",
+                        state_label(state_id),
+                        (unsigned int) ((confidence * 100U + 127U) / 255U)
+                    );
+                    if (
+                        indicator_1_text != NULL
+                        || indicator_2_text != NULL
+                        || indicator_3_text != NULL
+                    ) {
+                        printf("Indicators:\n");
+                        if (indicator_1_text != NULL) {
+                            printf("  - %s\n", indicator_1_text);
+                        }
+                        if (indicator_2_text != NULL) {
+                            printf("  - %s\n", indicator_2_text);
+                        }
+                        if (indicator_3_text != NULL) {
+                            printf("  - %s\n", indicator_3_text);
+                        }
+                    }
+                    if (
+                        recommendation_1_text != NULL
+                        || recommendation_2_text != NULL
+                        || recommendation_3_text != NULL
+                    ) {
+                        printf("Recommendations:\n");
+                        if (recommendation_1_text != NULL) {
+                            printf("  - %s\n", recommendation_1_text);
+                        }
+                        if (recommendation_2_text != NULL) {
+                            printf("  - %s\n", recommendation_2_text);
+                        }
+                        if (recommendation_3_text != NULL) {
+                            printf("  - %s\n", recommendation_3_text);
+                        }
+                    }
+                    fflush(stdout);
+                    *last_state_id = state_id;
+                    *last_confidence = confidence;
+                    *last_indicator_1 = indicator_1;
+                    *last_indicator_2 = indicator_2;
+                    *last_indicator_3 = indicator_3;
+                    *last_recommendation_1 = recommendation_1;
+                    *last_recommendation_2 = recommendation_2;
+                    *last_recommendation_3 = recommendation_3;
+                }
+            } else if (
+                memcmp(control_buffer, EVENT_MAGIC, 4U) == 0
+                && read_be32(control_buffer + 4U) == EVENT_FEEDBACK
+                && payload_size > 0U
+            ) {
+                const uint8_t *payload = control_buffer + FRAME_HEADER_SIZE;
+                printf("LLM feedback: %.*s\n", (int) payload_size, (const char *) payload);
+                fflush(stdout);
+            }
+
+            memmove(
+                control_buffer,
+                control_buffer + packet_size,
+                *control_size - packet_size
+            );
+            *control_size -= packet_size;
+        }
+
+        if (*control_size == CONTROL_BUFFER_CAPACITY) {
+            *control_size = 0U;
+        }
+    }
+}
+
 int main(int argc, char **argv) {
     const char *server_host;
     uint16_t port;
@@ -258,12 +528,22 @@ int main(int argc, char **argv) {
     int camera_stdout_fd = -1;
     int socket_fd = -1;
     uint8_t read_buffer[PIPE_READ_CHUNK];
+    uint8_t control_buffer[CONTROL_BUFFER_CAPACITY];
     uint8_t *frame_buffer = NULL;
     size_t frame_capacity = INITIAL_FRAME_CAPACITY;
     size_t frame_size = 0U;
+    size_t control_size = 0U;
     bool collecting = false;
     bool previous_was_ff = false;
     uint64_t frame_count = 0U;
+    uint8_t last_state_id = 0xffU;
+    uint8_t last_confidence = 0xffU;
+    uint8_t last_indicator_1 = 0xffU;
+    uint8_t last_indicator_2 = 0xffU;
+    uint8_t last_indicator_3 = 0xffU;
+    uint8_t last_recommendation_1 = 0xffU;
+    uint8_t last_recommendation_2 = 0xffU;
+    uint8_t last_recommendation_3 = 0xffU;
 
     signal(SIGPIPE, SIG_IGN);
 
@@ -299,6 +579,13 @@ int main(int argc, char **argv) {
     socket_fd = connect_to_server(server_host, port);
     if (socket_fd < 0) {
         fprintf(stderr, "Failed to connect to %s:%u: %s\n", server_host, port, strerror(errno));
+        free(frame_buffer);
+        return 1;
+    }
+
+    if (!send_hello_packet(socket_fd)) {
+        fprintf(stderr, "Failed to send hello packet: %s\n", strerror(errno));
+        close(socket_fd);
         free(frame_buffer);
         return 1;
     }
@@ -381,6 +668,19 @@ int main(int argc, char **argv) {
                     fprintf(stderr, "Failed to send frame %llu: %s\n", (unsigned long long) frame_count, strerror(errno));
                     goto cleanup;
                 }
+                drain_control_packets(
+                    socket_fd,
+                    control_buffer,
+                    &control_size,
+                    &last_state_id,
+                    &last_confidence,
+                    &last_indicator_1,
+                    &last_indicator_2,
+                    &last_indicator_3,
+                    &last_recommendation_1,
+                    &last_recommendation_2,
+                    &last_recommendation_3
+                );
                 if (frame_count % 30U == 0U) {
                     printf(
                         "Sent %llu frames\n",

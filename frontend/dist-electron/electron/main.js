@@ -12,7 +12,7 @@ const isDev = Boolean(process.env.VITE_DEV_SERVER_URL);
 const enableTray = process.platform !== 'linux';
 const desktopFileName = 'cognitivesense-shell.desktop';
 const mediaHost = process.env.COGNITIVESENSE_SERVER_HOST ?? '127.0.0.1';
-const mediaPort = Number(process.env.COGNITIVESENSE_SERVER_PORT ?? '9100');
+const mediaPort = Number(process.env.COGNITIVESENSE_SERVER_PORT ?? '9000');
 const useFakeMedia = process.env.COGNITIVESENSE_FAKE_MEDIA === '1';
 const disableGpu = process.env.COGNITIVESENSE_DISABLE_GPU === '1';
 const runtimeLogPath = node_path_1.default.join(node_os_1.default.tmpdir(), 'cognitivesense-electron-runtime.log');
@@ -21,6 +21,48 @@ const frameMagic = 'CSJ1';
 const audioMagic = 'CSA1';
 const eventMagic = 'CSM1';
 const maxSocketBufferedBytes = 512 * 1024;
+const controlHello = 1;
+const controlState = 2;
+const controlFeedback = 3;
+const controlVersion = 1;
+const sourceDesktop = 1;
+const capabilitySendVideo = 1 << 0;
+const capabilitySendAudio = 1 << 1;
+const capabilityReceiveState = 1 << 2;
+const capabilityBinaryControl = 1 << 4;
+const streamVideoRecent = 1 << 0;
+const streamAudioRecent = 1 << 1;
+const stateLabels = {
+    0: 'UNKNOWN',
+    1: 'FOCUSED',
+    2: 'FATIGUED',
+    3: 'STRESSED',
+    4: 'DISTRACTED',
+};
+const indicatorLabels = {
+    1: 'Blink rate elevated',
+    2: 'Blink rate suppressed',
+    3: 'Posture slouched',
+    4: 'Posture leaning',
+    5: 'Eye movement distracted',
+    6: 'Facial tension detected',
+    7: 'Speech tone stressed',
+    8: 'Speech tone monotone',
+    9: 'Posture upright',
+    10: 'Eye engagement focused',
+    11: 'Facial expression relaxed',
+    12: 'Speech tone calm',
+};
+const recommendationLabels = {
+    1: 'Take a 10 minute break',
+    2: 'Hydrate',
+    3: 'Stretch and reset posture',
+    4: 'Take a breathing pause',
+    5: 'Refocus on one task',
+    6: 'Silence distractions',
+    7: 'Keep your current pace',
+    8: 'Reset your posture',
+};
 electron_1.app.setName('CognitiveSense');
 const writeRuntimeLog = (source, message, data) => {
     const suffix = data === undefined ? '' : ` ${JSON.stringify(data)}`;
@@ -143,10 +185,66 @@ const closeBackendSocket = () => {
     backendSocket.destroy();
     backendSocket = null;
 };
+const sendControlPacket = (messageType, flags, payload) => {
+    return writePacket(eventMagic, messageType, flags, payload);
+};
+const sendHelloPacket = () => {
+    const payload = Buffer.alloc(4);
+    payload.writeUInt8(controlVersion, 0);
+    payload.writeUInt8(sourceDesktop, 1);
+    payload.writeUInt16BE(0, 2);
+    const capabilityFlags = capabilitySendVideo |
+        capabilitySendAudio |
+        capabilityReceiveState |
+        capabilityBinaryControl;
+    return sendControlPacket(controlHello, capabilityFlags, payload);
+};
+const emitStateTelemetry = (payload) => {
+    if (payload.length < 8) {
+        emitTransport({ detail: 'Malformed state telemetry payload from server' });
+        return;
+    }
+    const stateId = payload.readUInt8(1);
+    const confidence = payload.readUInt8(2) / 255;
+    const streamFlags = payload.readUInt8(3);
+    const indicators = payload.length >= 11
+        ? [payload.readUInt8(8), payload.readUInt8(9), payload.readUInt8(10)]
+            .map((code) => indicatorLabels[code])
+            .filter((value) => Boolean(value))
+        : [];
+    const recommendations = payload.length >= 14
+        ? [payload.readUInt8(11), payload.readUInt8(12), payload.readUInt8(13)]
+            .map((code) => recommendationLabels[code])
+            .filter((value) => Boolean(value))
+        : [];
+    emitToRenderer('telemetry:event', {
+        type: 'state',
+        label: stateLabels[stateId] ?? 'UNKNOWN',
+        confidence,
+        indicators,
+        recommendations,
+        transport: {
+            video: Boolean(streamFlags & streamVideoRecent),
+            audio: Boolean(streamFlags & streamAudioRecent),
+        },
+    });
+};
+const emitFeedbackTelemetry = (payload) => {
+    const text = payload.toString('utf8').trim();
+    if (!text) {
+        return;
+    }
+    emitToRenderer('telemetry:event', {
+        type: 'feedback',
+        text,
+        timestamp: Date.now() / 1000,
+    });
+};
 const parseBackendPackets = (chunk) => {
     backendBuffer = Buffer.concat([backendBuffer, chunk]);
     while (backendBuffer.length >= headerSize) {
         const magic = backendBuffer.toString('ascii', 0, 4);
+        const meta1 = backendBuffer.readUInt32BE(4);
         const payloadSize = backendBuffer.readUInt32BE(12);
         const packetSize = headerSize + payloadSize;
         if (backendBuffer.length < packetSize)
@@ -156,11 +254,11 @@ const parseBackendPackets = (chunk) => {
         if (magic !== eventMagic) {
             continue;
         }
-        try {
-            emitToRenderer('telemetry:event', JSON.parse(payload.toString('utf8')));
+        if (meta1 === controlState) {
+            emitStateTelemetry(payload);
         }
-        catch {
-            emitTransport({ detail: 'Malformed telemetry payload from server' });
+        else if (meta1 === controlFeedback) {
+            emitFeedbackTelemetry(payload);
         }
     }
 };
@@ -176,6 +274,7 @@ const connectBackend = () => {
         backendConnection = 'connected';
         backendBuffer = Buffer.alloc(0);
         writeRuntimeLog('main', 'backend:connected', { host: mediaHost, port: mediaPort });
+        sendHelloPacket();
         emitTransportSnapshot();
     });
     socket.on('data', parseBackendPackets);

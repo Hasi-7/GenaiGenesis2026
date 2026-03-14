@@ -2,15 +2,11 @@ import { useEffect, useRef, useState } from 'react';
 
 type CognitiveLabel = 'FOCUSED' | 'FATIGUED' | 'STRESSED' | 'DISTRACTED' | 'UNKNOWN';
 
-type Signal = {
-  label: string;
-  confidence: number;
-};
-
 type CognitiveState = {
   label: CognitiveLabel;
   confidence: number;
-  signals: Signal[];
+  indicators: string[];
+  recommendations: string[];
 };
 
 type Feedback = {
@@ -38,6 +34,9 @@ const FRAME_INTERVAL_MS = 200;
 const JPEG_QUALITY = 0.68;
 const CAPTURE_WIDTH = 640;
 const CAPTURE_HEIGHT = 480;
+const MIC_SETTING_KEY = 'cognitivesense.mic-enabled';
+const AUDIO_SAMPLE_RATE = 16_000;
+const AUDIO_FLUSH_INTERVAL_MS = 250;
 
 const sleep = (ms: number) => new Promise((resolve) => window.setTimeout(resolve, ms));
 
@@ -53,33 +52,45 @@ const formatClock = (timestamp: number) => {
   });
 };
 
-const prettifySignal = (value: string) => {
-  return value.replace(/_/g, ' ').replace(/\b\w/g, (char) => char.toUpperCase());
-};
-
 export const App = () => {
   const videoRef = useRef<HTMLVideoElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const videoStreamRef = useRef<MediaStream | null>(null);
+  const audioStreamRef = useRef<MediaStream | null>(null);
+  const audioContextRef = useRef<AudioContext | null>(null);
+  const audioSourceRef = useRef<MediaStreamAudioSourceNode | null>(null);
+  const audioWorkletNodeRef = useRef<AudioWorkletNode | null>(null);
   const liveModeRef = useRef(true);
   const transportConnectionRef = useRef<TransportState['connection']>('disconnected');
   const feedbackTimerRef = useRef<number | null>(null);
   const lastStateLabelRef = useRef<CognitiveLabel>('UNKNOWN');
+  const lastRecommendationRef = useRef('');
 
   const [cogState, setCogState] = useState<CognitiveState>({
     label: 'UNKNOWN',
     confidence: 0,
-    signals: [],
+    indicators: [],
+    recommendations: [],
   });
   const [feedback, setFeedback] = useState<Feedback | null>(null);
   const [transport, setTransport] = useState<TransportState>({
     connection: 'disconnected',
     host: '127.0.0.1',
-    port: 9100,
+    port: 9000,
   });
   const [streamReady, setStreamReady] = useState(false);
   const [mediaError, setMediaError] = useState<string | null>(null);
   const [liveMode, setLiveMode] = useState(true);
+  const [micEnabled, setMicEnabled] = useState(() => {
+    try {
+      return window.localStorage.getItem(MIC_SETTING_KEY) !== 'off';
+    } catch {
+      return true;
+    }
+  });
+  const [audioCaptureState, setAudioCaptureState] = useState<
+    'disabled' | 'starting' | 'ready' | 'unavailable'
+  >('disabled');
   const [videoSeen, setVideoSeen] = useState(false);
   const [audioSeen, setAudioSeen] = useState(false);
   const [recentEvents, setRecentEvents] = useState<string[]>([]);
@@ -90,6 +101,71 @@ export const App = () => {
 
   const debugLog = (message: string, data?: unknown) => {
     window.cognitiveSense.debugLog(message, data);
+  };
+
+  const buildAudioWorkletModuleUrl = () => {
+    const source = `
+      class CognitiveSenseAudioCaptureProcessor extends AudioWorkletProcessor {
+        constructor(options) {
+          super();
+          const chunkMs = options?.processorOptions?.chunkMs ?? 250;
+          this.targetSamples = Math.max(1024, Math.round(sampleRate * chunkMs / 1000));
+          this.pending = [];
+          this.pendingLength = 0;
+        }
+
+        process(inputs) {
+          const input = inputs[0];
+          const channel = input && input[0];
+          if (!channel || channel.length === 0) {
+            return true;
+          }
+
+          const copy = new Float32Array(channel.length);
+          copy.set(channel);
+          this.pending.push(copy);
+          this.pendingLength += copy.length;
+
+          if (this.pendingLength < this.targetSamples) {
+            return true;
+          }
+
+          const merged = new Float32Array(this.pendingLength);
+          let offset = 0;
+          for (const chunk of this.pending) {
+            merged.set(chunk, offset);
+            offset += chunk.length;
+          }
+
+          this.pending = [];
+          this.pendingLength = 0;
+          this.port.postMessage(merged, [merged.buffer]);
+          return true;
+        }
+      }
+
+      registerProcessor('cognitivesense-audio-capture', CognitiveSenseAudioCaptureProcessor);
+    `;
+
+    return URL.createObjectURL(new Blob([source], { type: 'application/javascript' }));
+  };
+
+  const stopAudioCapture = async () => {
+    audioWorkletNodeRef.current?.port.close();
+    audioWorkletNodeRef.current?.disconnect();
+    audioSourceRef.current?.disconnect();
+    audioWorkletNodeRef.current = null;
+    audioSourceRef.current = null;
+
+    audioStreamRef.current?.getTracks().forEach((track) => track.stop());
+    audioStreamRef.current = null;
+
+    if (audioContextRef.current) {
+      await audioContextRef.current.close().catch(() => undefined);
+      audioContextRef.current = null;
+    }
+
+    setAudioSeen(false);
   };
 
   useEffect(() => {
@@ -161,27 +237,23 @@ export const App = () => {
         video.srcObject = stream;
         video.playsInline = true;
         video.muted = true;
+        videoStreamRef.current = stream;
 
         await video.play();
+
         if (!cancelled) {
           setStreamReady(true);
         }
-      } catch {
+      } catch (error) {
         if (!cancelled) {
           setMediaError('Could not access the camera.');
-          debugLog('camera:getUserMedia:failed');
+          debugLog('camera:getUserMedia:failed', {
+            message: error instanceof Error ? error.message : String(error),
+          });
         }
       }
     };
 
-    void window.cognitiveSense.getTransportState().then((nextTransport) => {
-      if (!cancelled) {
-        setTransport(nextTransport);
-      }
-    });
-
-    pushEvent('Audio uplink temporarily disabled while stabilizing video.');
-    debugLog('audio:capture:disabled-for-stability');
     void startVideo();
 
     return () => {
@@ -190,10 +262,129 @@ export const App = () => {
         clearTimeout(feedbackTimerRef.current);
         feedbackTimerRef.current = null;
       }
+      void stopAudioCapture();
       videoStreamRef.current?.getTracks().forEach((track) => track.stop());
       videoStreamRef.current = null;
     };
   }, []);
+
+  useEffect(() => {
+    try {
+      window.localStorage.setItem(MIC_SETTING_KEY, micEnabled ? 'on' : 'off');
+    } catch {
+      // Ignore storage failures.
+    }
+  }, [micEnabled]);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    const startAudio = async () => {
+      try {
+        setAudioCaptureState('starting');
+        debugLog('audio:getUserMedia:start');
+        const stream = await navigator.mediaDevices.getUserMedia({
+          video: false,
+          audio: {
+            channelCount: { ideal: 1, max: 1 },
+            sampleRate: { ideal: AUDIO_SAMPLE_RATE },
+            echoCancellation: false,
+            noiseSuppression: false,
+            autoGainControl: false,
+          },
+        });
+
+        if (cancelled) {
+          stream.getTracks().forEach((track) => track.stop());
+          return;
+        }
+
+        const audioTracks = stream.getAudioTracks();
+        if (audioTracks.length === 0) {
+          setAudioCaptureState('unavailable');
+          debugLog('audio:capture:no-track');
+          pushEvent('No microphone track available.');
+          return;
+        }
+
+        const audioContext = new AudioContext({ sampleRate: AUDIO_SAMPLE_RATE });
+        const audioSource = audioContext.createMediaStreamSource(stream);
+        const workletUrl = buildAudioWorkletModuleUrl();
+        try {
+          await audioContext.audioWorklet.addModule(workletUrl);
+        } finally {
+          URL.revokeObjectURL(workletUrl);
+        }
+
+        const audioWorkletNode = new AudioWorkletNode(
+          audioContext,
+          'cognitivesense-audio-capture',
+          {
+            numberOfInputs: 1,
+            numberOfOutputs: 0,
+            channelCount: 1,
+            channelCountMode: 'explicit',
+            channelInterpretation: 'speakers',
+            processorOptions: { chunkMs: AUDIO_FLUSH_INTERVAL_MS },
+          },
+        );
+
+        audioWorkletNode.port.onmessage = (event: MessageEvent<Float32Array>) => {
+          if (!liveModeRef.current || transportConnectionRef.current !== 'connected') {
+            return;
+          }
+
+          const chunk = event.data;
+          if (!(chunk instanceof Float32Array) || chunk.length === 0) {
+            return;
+          }
+
+          const packet = new Float32Array(chunk.length);
+          packet.set(chunk);
+          window.cognitiveSense.sendAudio(packet.buffer, audioContext.sampleRate, 1);
+        };
+
+        audioSource.connect(audioWorkletNode);
+        await audioContext.resume();
+
+        audioStreamRef.current = stream;
+        audioContextRef.current = audioContext;
+        audioSourceRef.current = audioSource;
+        audioWorkletNodeRef.current = audioWorkletNode;
+        setAudioCaptureState('ready');
+
+        debugLog('audio:capture:enabled', {
+          label: audioTracks[0]?.label ?? null,
+          sampleRate: audioContext.sampleRate,
+          flushIntervalMs: AUDIO_FLUSH_INTERVAL_MS,
+          transport: 'audio-worklet',
+        });
+        pushEvent('Audio uplink enabled.');
+      } catch (error) {
+        setAudioCaptureState('unavailable');
+        debugLog('audio:getUserMedia:failed', {
+          message: error instanceof Error ? error.message : String(error),
+        });
+        pushEvent('Microphone unavailable; continuing with video only.');
+      }
+    };
+
+    if (!micEnabled) {
+      setAudioCaptureState('disabled');
+      void stopAudioCapture();
+      pushEvent('Microphone uplink disabled.');
+      return () => {
+        cancelled = true;
+      };
+    }
+
+    void startAudio();
+
+    return () => {
+      cancelled = true;
+      void stopAudioCapture();
+    };
+  }, [micEnabled]);
 
   useEffect(() => {
     const video = videoRef.current;
@@ -218,11 +409,11 @@ export const App = () => {
         const nextState: CognitiveState = {
           label,
           confidence: Number(payload.confidence ?? 0),
-          signals: Array.isArray(payload.signals)
-            ? payload.signals.map((signal) => ({
-                label: String((signal as { label?: string }).label ?? 'unknown'),
-                confidence: Number((signal as { confidence?: number }).confidence ?? 0),
-              }))
+          indicators: Array.isArray(payload.indicators)
+            ? payload.indicators.map((indicator) => String(indicator))
+            : [],
+          recommendations: Array.isArray(payload.recommendations)
+            ? payload.recommendations.map((item) => String(item))
             : [],
         };
 
@@ -236,6 +427,13 @@ export const App = () => {
         if (lastStateLabelRef.current !== label && label !== 'UNKNOWN') {
           pushEvent(`State: ${label.toLowerCase()}`);
           lastStateLabelRef.current = label;
+        }
+        if (
+          nextState.recommendations.length > 0 &&
+          nextState.recommendations[0] !== lastRecommendationRef.current
+        ) {
+          pushEvent(`Recommend: ${nextState.recommendations[0]}`);
+          lastRecommendationRef.current = nextState.recommendations[0];
         }
       }
 
@@ -375,6 +573,15 @@ export const App = () => {
       : transport.connection === 'connecting'
         ? 'Connecting'
         : 'Offline';
+  const audioLabel = !micEnabled
+    ? 'Disabled'
+    : audioSeen
+      ? 'Live'
+      : audioCaptureState === 'starting'
+        ? 'Starting'
+        : audioCaptureState === 'ready'
+          ? 'Ready'
+          : 'Unavailable';
 
   if (mediaError) {
     return (
@@ -428,24 +635,44 @@ export const App = () => {
             <button className={`primary-button ${liveMode ? 'active' : ''}`} onClick={() => setLiveMode((value) => !value)}>
               {liveMode ? 'Pause uplink' : 'Resume uplink'}
             </button>
+            <button
+              className={`secondary-button ${micEnabled ? 'active' : ''}`}
+              onClick={() => setMicEnabled((value) => !value)}
+            >
+              {micEnabled ? 'Mic on' : 'Mic off'}
+            </button>
             <button className="secondary-button" onClick={() => void window.cognitiveSense.quit()}>
               Kill app
             </button>
           </div>
         </div>
 
-        <div className="panel signal-panel">
-          <div className="panel-title">Signals</div>
+          <div className="panel signal-panel">
+          <div className="panel-title">Indicators</div>
           <div className="signal-list">
-            {cogState.signals.length > 0 ? (
-              cogState.signals.slice(0, 5).map((signal) => (
-                <div className="signal-row" key={`${signal.label}-${signal.confidence}`}>
-                  <span>{prettifySignal(signal.label)}</span>
-                  <strong>{Math.round(signal.confidence * 100)}%</strong>
+            {cogState.indicators.length > 0 ? (
+              cogState.indicators.map((indicator) => (
+                <div className="signal-row" key={indicator}>
+                  <span>{indicator}</span>
                 </div>
               ))
             ) : (
-              <div className="empty-copy">No server-side signal bundle yet.</div>
+              <div className="empty-copy">No primary indicators yet.</div>
+            )}
+          </div>
+        </div>
+
+        <div className="panel signal-panel">
+          <div className="panel-title">Recommendations</div>
+          <div className="signal-list">
+            {cogState.recommendations.length > 0 ? (
+              cogState.recommendations.map((recommendation) => (
+                <div className="signal-row" key={recommendation}>
+                  <span>{recommendation}</span>
+                </div>
+              ))
+            ) : (
+              <div className="empty-copy">Recommendations appear after analysis settles.</div>
             )}
           </div>
         </div>
@@ -463,7 +690,7 @@ export const App = () => {
           </div>
           <div className="meta-row">
             <span>Audio</span>
-            <strong>{audioSeen ? 'Live' : 'Off'}</strong>
+            <strong>{audioLabel}</strong>
           </div>
           <div className="meta-row">
             <span>Mode</span>

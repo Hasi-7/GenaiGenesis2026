@@ -56,11 +56,15 @@ class StateTrackerProtocol(Protocol):
         """Return frame analyses from the last N seconds."""
         ...
 
+
 # Maps classifier labels → CognitiveStateLabel
 _LABEL_TO_STATE: dict[str, CognitiveStateLabel] = {
     # FATIGUED signals
     "fatigued": CognitiveStateLabel.FATIGUED,
+    "elevated": CognitiveStateLabel.FATIGUED,
     "slouching": CognitiveStateLabel.FATIGUED,
+    "slouched": CognitiveStateLabel.FATIGUED,
+    "leaning": CognitiveStateLabel.FATIGUED,
     "monotone": CognitiveStateLabel.FATIGUED,
     # STRESSED signals
     "stressed": CognitiveStateLabel.STRESSED,
@@ -89,18 +93,13 @@ _MIN_FRAMES_PER_HALF = 3
 def _to_contributing(
     signals: list[ClassifierResult],
 ) -> list[ClassifierResult]:
-    return [
-        ClassifierResult(label=s.label, confidence=s.confidence)
-        for s in signals
-    ]
+    return [ClassifierResult(label=s.label, confidence=s.confidence) for s in signals]
 
 
 class StateTracker:
     """Sliding window state tracking and change detection."""
 
-    def __init__(
-        self, window_seconds: float = _DEFAULT_WINDOW_SECONDS
-    ) -> None:
+    def __init__(self, window_seconds: float = _DEFAULT_WINDOW_SECONDS) -> None:
         self._window_seconds = window_seconds
         self._frames: deque[FrameAnalysis] = deque()
         self._last_transition_time: float = 0.0
@@ -134,12 +133,8 @@ class StateTracker:
             return None
 
         midpoint = now - self._window_seconds / 2.0
-        first_half = [
-            f for f in self._frames if f.timestamp < midpoint
-        ]
-        second_half = [
-            f for f in self._frames if f.timestamp >= midpoint
-        ]
+        first_half = [f for f in self._frames if f.timestamp < midpoint]
+        second_half = [f for f in self._frames if f.timestamp >= midpoint]
 
         if (
             len(first_half) < _MIN_FRAMES_PER_HALF
@@ -184,9 +179,7 @@ class StateTracker:
             transition_time=now,
         )
 
-    def get_recent_analyses(
-        self, seconds: float = 5.0
-    ) -> list[FrameAnalysis]:
+    def get_recent_analyses(self, seconds: float = 5.0) -> list[FrameAnalysis]:
         """Return frame analyses from the last N seconds."""
         cutoff = time.time() - seconds
         return [f for f in self._frames if f.timestamp >= cutoff]
@@ -277,12 +270,9 @@ class LLMStateTracker:
         # Only call the LLM periodically or when local signals shift
         current = self.get_current_state()
         state_changed = (
-            self._last_state is not None
-            and current.label != self._last_state.label
+            self._last_state is not None and current.label != self._last_state.label
         )
-        interval_elapsed = (
-            now - self._last_check_time >= self._check_interval_seconds
-        )
+        interval_elapsed = now - self._last_check_time >= self._check_interval_seconds
 
         if not state_changed and not interval_elapsed:
             return None
@@ -295,8 +285,7 @@ class LLMStateTracker:
 
         reason = "state change" if state_changed else "interval check"
         logger.info(
-            "LLMStateTracker: starting detection (%s), "
-            "current=%s confidence=%.0f%%",
+            "LLMStateTracker: starting detection (%s), current=%s confidence=%.0f%%",
             reason,
             current.label.value,
             current.confidence * 100,
@@ -307,8 +296,7 @@ class LLMStateTracker:
             self._last_transition_time = now
             self._last_state = transition.new_state
             logger.info(
-                "LLMStateTracker: transition detected %s -> %s "
-                "(confidence=%.0f%%)",
+                "LLMStateTracker: transition detected %s -> %s (confidence=%.0f%%)",
                 transition.previous_state.label.value,
                 transition.new_state.label.value,
                 transition.new_state.confidence * 100,
@@ -317,9 +305,7 @@ class LLMStateTracker:
             logger.info("LLMStateTracker: no transition detected")
         return transition
 
-    def get_recent_analyses(
-        self, seconds: float = 5.0
-    ) -> list[FrameAnalysis]:
+    def get_recent_analyses(self, seconds: float = 5.0) -> list[FrameAnalysis]:
         cutoff = time.time() - seconds
         return [f for f in self._frames if f.timestamp >= cutoff]
 
@@ -374,9 +360,7 @@ class LLMStateTracker:
             f"{time.time() - self._last_transition_time:.0f}s",
         ]
         if self._last_state is not None:
-            lines.append(
-                f"Previous state: {self._last_state.label.value}"
-            )
+            lines.append(f"Previous state: {self._last_state.label.value}")
 
         # Summarise recent signals
         signals = _collect_signals(recent)
@@ -406,9 +390,7 @@ class LLMStateTracker:
         try:
             data = json.loads(raw)
         except json.JSONDecodeError:
-            logger.warning(
-                "LLMStateTracker: failed to parse JSON: %s", raw
-            )
+            logger.warning("LLMStateTracker: failed to parse JSON: %s", raw)
             return None
 
         if not data.get("transition", False):
@@ -446,25 +428,15 @@ def _collect_signals(
             signals.append(f.blink_label)
         elif f.blink is not None:
             if f.blink.blinks_per_minute > 25:
-                signals.append(
-                    ClassifierResult(label="fatigued", confidence=0.7)
-                )
+                signals.append(ClassifierResult(label="fatigued", confidence=0.7))
             elif f.blink.blinks_per_minute < 10:
-                signals.append(
-                    ClassifierResult(label="stressed", confidence=0.6)
-                )
+                signals.append(ClassifierResult(label="stressed", confidence=0.6))
             else:
-                signals.append(
-                    ClassifierResult(label="normal", confidence=0.8)
-                )
+                signals.append(ClassifierResult(label="normal", confidence=0.8))
         if f.gaze_label is not None:
             signals.append(f.gaze_label)
         elif f.gaze is not None:
-            signals.append(
-                ClassifierResult(
-                    label=f.gaze.direction, confidence=0.7
-                )
-            )
+            signals.append(ClassifierResult(label=f.gaze.direction, confidence=0.7))
         if f.expression is not None:
             signals.append(f.expression)
         if f.posture is not None:
@@ -513,23 +485,14 @@ if __name__ == "__main__":
         t = base_time + i * 0.66
         analysis = FrameAnalysis(
             timestamp=t,
-            expression=ClassifierResult(
-                label="neutral", confidence=0.85
-            ),
-            posture=ClassifierResult(
-                label="upright", confidence=0.9
-            ),
-            speech_tone=ClassifierResult(
-                label="calm", confidence=0.8
-            ),
+            expression=ClassifierResult(label="neutral", confidence=0.85),
+            posture=ClassifierResult(label="upright", confidence=0.9),
+            speech_tone=ClassifierResult(label="calm", confidence=0.8),
         )
         tracker.add_frame(analysis)
 
     state = tracker.get_current_state()
-    print(
-        f"Current state: {state.label.value}"
-        f" (confidence: {state.confidence:.3f})"
-    )
+    print(f"Current state: {state.label.value} (confidence: {state.confidence:.3f})")
     print(f"Contributing signals: {len(state.contributing_signals)}")
 
     transition = tracker.detect_transition()
@@ -545,12 +508,8 @@ if __name__ == "__main__":
         tracker2.add_frame(
             FrameAnalysis(
                 timestamp=t,
-                expression=ClassifierResult(
-                    label="relaxed", confidence=0.9
-                ),
-                posture=ClassifierResult(
-                    label="upright", confidence=0.85
-                ),
+                expression=ClassifierResult(label="relaxed", confidence=0.9),
+                posture=ClassifierResult(label="upright", confidence=0.85),
             )
         )
 
@@ -560,12 +519,8 @@ if __name__ == "__main__":
         tracker2.add_frame(
             FrameAnalysis(
                 timestamp=t,
-                expression=ClassifierResult(
-                    label="tense", confidence=0.9
-                ),
-                speech_tone=ClassifierResult(
-                    label="stressed", confidence=0.85
-                ),
+                expression=ClassifierResult(label="tense", confidence=0.9),
+                speech_tone=ClassifierResult(label="stressed", confidence=0.85),
             )
         )
 
@@ -579,10 +534,7 @@ if __name__ == "__main__":
     if transition2 is not None:
         prev = transition2.previous_state
         new = transition2.new_state
-        print(
-            f"Transition: {prev.label.value}"
-            f" -> {new.label.value}"
-        )
+        print(f"Transition: {prev.label.value} -> {new.label.value}")
         print(f"  Old confidence: {prev.confidence:.3f}")
         print(f"  New confidence: {new.confidence:.3f}")
     else:

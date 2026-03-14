@@ -364,26 +364,9 @@ class PipelineController:
             return
 
         waited = now - self._waiting_for_frames_since
-        if self._config.input_source is InputSource.MIRROR_TCP:
+        if self._config.input_source is InputSource.REMOTE_MEDIA:
             logger.info(
-                "Waiting for mirror frames on %s:%d (%.1fs elapsed)",
-                self._config.mirror_listen_host,
-                self._config.mirror_listen_port,
-                waited,
-            )
-        elif self._config.input_source is InputSource.DUAL_NETWORK:
-            logger.info(
-                "Waiting for frontend media on %s:%d or mirror frames on %s:%d "
-                "(%.1fs elapsed)",
-                self._config.remote_media_host,
-                self._config.remote_media_port,
-                self._config.mirror_listen_host,
-                self._config.mirror_listen_port,
-                waited,
-            )
-        elif self._config.input_source is InputSource.REMOTE_MEDIA:
-            logger.info(
-                "Waiting for frontend media on %s:%d (%.1fs elapsed)",
+                "Waiting for network media on %s:%d (%.1fs elapsed)",
                 self._config.remote_media_host,
                 self._config.remote_media_port,
                 waited,

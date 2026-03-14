@@ -223,6 +223,11 @@ button {
   background: rgba(20, 61, 96, 0.58);
 }
 
+.secondary-button.active {
+  border-color: rgba(47, 179, 109, 0.45);
+  background: rgba(16, 67, 43, 0.58);
+}
+
 .signal-panel,
 .meta-panel,
 .events-panel {
