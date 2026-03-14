@@ -45,6 +45,7 @@ Run it directly against the Pi camera:
 ```bash
 ./mirror/build/mirror_capture_smoke
 ./mirror/build/mirror_capture_smoke 1280 720 8000
+./mirror/build/mirror_capture_smoke 1280 720 8000 /home/pi/frame.bmp
 ```
 
-Arguments are `width height timeout_ms`. The smoke test prints one captured frame and exits with `0` on success.
+Arguments are `width height timeout_ms [output_path]`. The smoke test prints one captured frame, saves a BMP to `captured_frame.bmp` by default, and exits with `0` on success.
