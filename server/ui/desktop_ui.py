@@ -7,14 +7,13 @@ import time
 
 import numpy as np
 from config.third_party import load_cv2
-from numpy.typing import NDArray
-
 from models.types import (
     CognitiveState,
     CognitiveStateLabel,
     FrameAnalysis,
     LLMResponse,
 )
+from numpy.typing import NDArray
 
 cv2 = load_cv2()
 
@@ -62,8 +61,26 @@ def _put(
     scale: float = 0.55,
     thickness: int = 1,
 ) -> None:
-    cv2.putText(frame, text, (x, y), cv2.FONT_HERSHEY_SIMPLEX, scale, _DARK, thickness + 2, cv2.LINE_AA)
-    cv2.putText(frame, text, (x, y), cv2.FONT_HERSHEY_SIMPLEX, scale, color, thickness, cv2.LINE_AA)
+    cv2.putText(
+        frame,
+        text,
+        (x, y),
+        cv2.FONT_HERSHEY_SIMPLEX,
+        scale,
+        _DARK,
+        thickness + 2,
+        cv2.LINE_AA,
+    )
+    cv2.putText(
+        frame,
+        text,
+        (x, y),
+        cv2.FONT_HERSHEY_SIMPLEX,
+        scale,
+        color,
+        thickness,
+        cv2.LINE_AA,
+    )
 
 
 def _pill(
@@ -76,13 +93,36 @@ def _pill(
     color = _label_color(label)
     text = f"{label.upper()}  {int(conf * 100)}%"
     scale, thickness = 0.52, 1
-    (tw, th), baseline = cv2.getTextSize(text, cv2.FONT_HERSHEY_SIMPLEX, scale, thickness)
+    (tw, th), baseline = cv2.getTextSize(
+        text,
+        cv2.FONT_HERSHEY_SIMPLEX,
+        scale,
+        thickness,
+    )
     pad_x, pad_y = 8, 5
     x1, y1 = x, y - th - pad_y
     x2, y2 = x + tw + pad_x * 2, y + baseline + pad_y
     cv2.rectangle(frame, (x1, y1), (x2, y2), color, -1)
-    cv2.putText(frame, text, (x + pad_x, y), cv2.FONT_HERSHEY_SIMPLEX, scale, _DARK, thickness + 1, cv2.LINE_AA)
-    cv2.putText(frame, text, (x + pad_x, y), cv2.FONT_HERSHEY_SIMPLEX, scale, (255, 255, 255), thickness, cv2.LINE_AA)
+    cv2.putText(
+        frame,
+        text,
+        (x + pad_x, y),
+        cv2.FONT_HERSHEY_SIMPLEX,
+        scale,
+        _DARK,
+        thickness + 1,
+        cv2.LINE_AA,
+    )
+    cv2.putText(
+        frame,
+        text,
+        (x + pad_x, y),
+        cv2.FONT_HERSHEY_SIMPLEX,
+        scale,
+        (255, 255, 255),
+        thickness,
+        cv2.LINE_AA,
+    )
 
 
 def _ear_bar(
@@ -178,8 +218,26 @@ class DesktopUI:
         (tw, th), _ = cv2.getTextSize(label_text, cv2.FONT_HERSHEY_SIMPLEX, 0.75, 2)
         tx = self._SIDEBAR_W + (w - self._SIDEBAR_W - tw) // 2
         ty = (self._TOP_H + th) // 2
-        cv2.putText(frame, label_text, (tx, ty), cv2.FONT_HERSHEY_SIMPLEX, 0.75, _DARK, 4, cv2.LINE_AA)
-        cv2.putText(frame, label_text, (tx, ty), cv2.FONT_HERSHEY_SIMPLEX, 0.75, (255, 255, 255), 2, cv2.LINE_AA)
+        cv2.putText(
+            frame,
+            label_text,
+            (tx, ty),
+            cv2.FONT_HERSHEY_SIMPLEX,
+            0.75,
+            _DARK,
+            4,
+            cv2.LINE_AA,
+        )
+        cv2.putText(
+            frame,
+            label_text,
+            (tx, ty),
+            cv2.FONT_HERSHEY_SIMPLEX,
+            0.75,
+            (255, 255, 255),
+            2,
+            cv2.LINE_AA,
+        )
 
         # FPS top-right corner
         fps_text = f"FPS {self._fps:.1f}"
@@ -196,7 +254,13 @@ class DesktopUI:
             return
 
         overlay = frame.copy()
-        cv2.rectangle(overlay, (self._SIDEBAR_W, h - self._BOTTOM_H), (w, h), (20, 20, 20), -1)
+        cv2.rectangle(
+            overlay,
+            (self._SIDEBAR_W, h - self._BOTTOM_H),
+            (w, h),
+            (20, 20, 20),
+            -1,
+        )
         cv2.addWeighted(overlay, 0.75, frame, 0.25, 0, frame)
 
         # Wrap text to fit the available width
@@ -244,7 +308,13 @@ class DesktopUI:
                 _put(frame, f"{blink.blinks_per_minute:.1f} bpm", x, y, _WHITE, 0.48)
             y += step
             if analysis.blink_label:
-                _pill(frame, analysis.blink_label.label, analysis.blink_label.confidence, x, y)
+                _pill(
+                    frame,
+                    analysis.blink_label.label,
+                    analysis.blink_label.confidence,
+                    x,
+                    y,
+                )
                 y += step + 4
         else:
             _put(frame, "no face", x, y, _ORANGE, 0.42)
@@ -259,12 +329,34 @@ class DesktopUI:
 
         gaze = analysis.gaze
         if gaze:
-            _put(frame, f"H {gaze.horizontal_ratio:+.2f}  V {gaze.vertical_ratio:+.2f}", x, y, _WHITE, 0.44)
+            _put(
+                frame,
+                f"H {gaze.horizontal_ratio:+.2f}  V {gaze.vertical_ratio:+.2f}",
+                x,
+                y,
+                _WHITE,
+                0.44,
+            )
             y += step
-            _put(frame, f"dir: {gaze.direction}", x, y, _label_color("center" if gaze.direction == "center" else "distracted"), 0.44)
+            _put(
+                frame,
+                f"dir: {gaze.direction}",
+                x,
+                y,
+                _label_color(
+                    "center" if gaze.direction == "center" else "distracted"
+                ),
+                0.44,
+            )
             y += step
             if analysis.gaze_label:
-                _pill(frame, analysis.gaze_label.label, analysis.gaze_label.confidence, x, y)
+                _pill(
+                    frame,
+                    analysis.gaze_label.label,
+                    analysis.gaze_label.confidence,
+                    x,
+                    y,
+                )
                 y += step + 4
         else:
             _put(frame, "no face", x, y, _ORANGE, 0.42)
@@ -278,7 +370,13 @@ class DesktopUI:
         y += step
 
         if analysis.expression:
-            _pill(frame, analysis.expression.label, analysis.expression.confidence, x, y)
+            _pill(
+                frame,
+                analysis.expression.label,
+                analysis.expression.confidence,
+                x,
+                y,
+            )
             y += step + 4
         else:
             _put(frame, "no face", x, y, _ORANGE, 0.42)
@@ -306,7 +404,13 @@ class DesktopUI:
         y += step
 
         if analysis.speech_tone:
-            _pill(frame, analysis.speech_tone.label, analysis.speech_tone.confidence, x, y)
+            _pill(
+                frame,
+                analysis.speech_tone.label,
+                analysis.speech_tone.confidence,
+                x,
+                y,
+            )
             y += step + 4
         else:
             _put(frame, "no audio", x, y, _GREY, 0.42)

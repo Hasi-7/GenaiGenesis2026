@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import logging
+import threading
 import time
 from collections.abc import Callable
 from typing import Protocol
@@ -94,6 +95,9 @@ class PipelineController:
         self._last_response: LLMResponse | None = None
         self._waiting_for_frames_since: float | None = None
         self._last_waiting_log_time = 0.0
+        self._stop_event = threading.Event()
+        self._cleanup_lock = threading.Lock()
+        self._closed = False
 
         # UI renderer
         if not config.renderer_enabled:
@@ -106,6 +110,14 @@ class PipelineController:
     def subscribe(self, callback: Callable[[LLMResponse], None]) -> None:
         """Register a callback invoked on each LLM response."""
         self._subscribers.append(callback)
+
+    def request_stop(self) -> None:
+        """Ask the main loop to exit at the next safe checkpoint."""
+        self._stop_event.set()
+
+    def close(self) -> None:
+        """Release pipeline resources. Safe to call multiple times."""
+        self._cleanup()
 
     def run(self) -> None:
         """Run the main pipeline loop. Blocks until stopped."""
@@ -124,7 +136,7 @@ class PipelineController:
         )
 
         try:
-            while True:
+            while not self._stop_event.is_set():
                 t_start = time.monotonic()
                 self._tick()
                 elapsed = time.monotonic() - t_start
@@ -133,11 +145,12 @@ class PipelineController:
                     time.sleep(sleep_time)
                 if self._renderer is not None and self._renderer.should_quit():
                     logger.info("User quit via UI")
-                    break
+                    self.request_stop()
         except KeyboardInterrupt:
             logger.info("Pipeline interrupted")
+            self.request_stop()
         finally:
-            self._cleanup()
+            self.close()
 
     def _tick(self) -> None:
         # 1. Read frame via screenshot manager
@@ -311,13 +324,35 @@ class PipelineController:
                 logger.exception("Response subscriber raised an exception")
 
     def _cleanup(self) -> None:
+        with self._cleanup_lock:
+            if self._closed:
+                return
+            self._closed = True
+
+        self._stop_event.set()
+
         if self._mic is not None:
-            self._mic.stop()
-        self._screenshot_manager.release()
-        self._face_detector.close()
-        self._posture_detector.close()
+            try:
+                self._mic.stop()
+            except Exception:
+                logger.exception("Failed to stop microphone during cleanup")
+        try:
+            self._screenshot_manager.release()
+        except Exception:
+            logger.exception("Failed to release screenshot manager during cleanup")
+        try:
+            self._face_detector.close()
+        except Exception:
+            logger.exception("Failed to close face detector during cleanup")
+        try:
+            self._posture_detector.close()
+        except Exception:
+            logger.exception("Failed to close posture detector during cleanup")
         if self._renderer is not None:
-            self._renderer.destroy()
+            try:
+                self._renderer.destroy()
+            except Exception:
+                logger.exception("Failed to destroy renderer during cleanup")
 
     def _log_waiting_for_frames(self) -> None:
         now = time.monotonic()

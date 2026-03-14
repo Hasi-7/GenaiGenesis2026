@@ -3,13 +3,12 @@ from __future__ import annotations
 from typing import Protocol
 
 import numpy as np
-from numpy.typing import NDArray
-
 from models.types import (
     CognitiveState,
     FrameAnalysis,
     LLMResponse,
 )
+from numpy.typing import NDArray
 
 # ---------------------------------------------------------------------------
 # Input Layer

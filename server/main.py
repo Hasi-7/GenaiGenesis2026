@@ -11,9 +11,12 @@ Or directly::
 
 from __future__ import annotations
 
+import atexit
 import logging
 import os
+import signal
 import sys
+from collections.abc import Callable
 
 # Add the server directory to the path so sibling packages are importable.
 sys.path.insert(0, os.path.dirname(__file__))
@@ -109,6 +112,24 @@ def main() -> None:
         rate_limiter=RateLimiter(cooldown_seconds=config.llm_cooldown_seconds),
     )
 
+    cleanup_callbacks: list[Callable[[], None]] = []
+    cleanup_started = False
+
+    def _run_cleanup() -> None:
+        nonlocal cleanup_started
+        if cleanup_started:
+            return
+        cleanup_started = True
+
+        while cleanup_callbacks:
+            callback = cleanup_callbacks.pop()
+            try:
+                callback()
+            except Exception:
+                logger.exception("Cleanup callback failed")
+
+    atexit.register(_run_cleanup)
+
     remote_media_server: RemoteMediaServer | None = None
     mic_source = None
 
@@ -117,6 +138,7 @@ def main() -> None:
             host=config.remote_media_host,
             port=config.remote_media_port,
         )
+        cleanup_callbacks.append(remote_media_server.release)
         camera = remote_media_server.make_camera_source()
         mic_source = (
             remote_media_server.make_mic_source() if config.mic_enabled else None
@@ -129,13 +151,14 @@ def main() -> None:
     else:
         camera = LocalCameraAdapter(config.camera_index)
     screenshot_manager = ScreenshotManager(camera)
+    cleanup_callbacks.append(screenshot_manager.release)
     if not screenshot_manager.is_opened():
         logger.error(
             "Receiver startup failed. Another process is already using %s:%d.",
             config.mirror_listen_host,
             config.mirror_listen_port,
         )
-        screenshot_manager.release()
+        _run_cleanup()
         return
 
     state_tracker: StateTracker | LLMStateTracker
@@ -158,8 +181,30 @@ def main() -> None:
         mic_source=mic_source,
         telemetry_sink=remote_media_server,
     )
+    cleanup_callbacks.append(controller.close)
+
+    handled_signals = [signal.SIGINT, signal.SIGTERM]
+    if hasattr(signal, "SIGBREAK"):
+        handled_signals.append(signal.SIGBREAK)
+
+    previous_handlers: dict[int, signal.Handlers] = {}
+
+    def _handle_shutdown(signum: int, _frame: object) -> None:
+        logger.info("Received signal %s; shutting down", signum)
+        controller.request_stop()
+
+    for sig in handled_signals:
+        previous_handlers[sig] = signal.getsignal(sig)
+        signal.signal(sig, _handle_shutdown)
+
     logger.info("Server startup complete; entering pipeline loop")
-    controller.run()
+    try:
+        controller.run()
+    finally:
+        for sig, previous in previous_handlers.items():
+            signal.signal(sig, previous)
+        atexit.unregister(_run_cleanup)
+        _run_cleanup()
 
 
 if __name__ == "__main__":

@@ -204,7 +204,8 @@ alongside sensor data. Your job is to determine if the user's cognitive \
 state has meaningfully changed or if they need assistance.
 
 Analyze the image and data, then respond in exactly this JSON format:
-{"transition": true/false, "new_state": "focused|fatigued|stressed|distracted", "confidence": 0.0-1.0, "reasoning": "brief explanation"}
+{"transition": true/false, "new_state": "focused|fatigued|stressed|"
+"distracted", "confidence": 0.0-1.0, "reasoning": "brief explanation"}
 
 Consider:
 - Visual cues: facial expression, posture, eye openness, tension
