@@ -12,14 +12,16 @@ Or directly::
 from __future__ import annotations
 
 import os
+import os
 import sys
 
 # Add the server directory to the path so all server modules are importable
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "server"))
 
-from openai import OpenAI
 from config.logging_config import setup_logging
 from core.pipeline_controller import PipelineController
+from models.types import PipelineConfig
+from openai import OpenAI
 from input.camera_adapter import LocalCameraAdapter
 from input.screenshot_manager import ScreenshotManager
 from models.types import PipelineConfig

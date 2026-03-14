@@ -49,3 +49,27 @@ Run it directly against the Pi camera:
 ```
 
 Arguments are `width height timeout_ms [output_path]`. The smoke test prints one captured frame, saves a BMP to `captured_frame.bmp` by default, and exits with `0` on success.
+
+## Mirror Streaming
+
+Run the server in mirror mode on the receiving machine:
+
+```bash
+uv run cognitivesense mirror
+```
+
+Build the mirror streamer on the Raspberry Pi:
+
+```bash
+cmake -S mirror -B mirror/build
+cmake --build mirror/build
+```
+
+Then stream frames to the server:
+
+```bash
+./mirror/build/mirror_frame_streamer 192.168.1.10
+./mirror/build/mirror_frame_streamer 192.168.1.10 9000 640 480 15
+```
+
+Arguments are `server_ip [port] [width] [height] [fps]`. The sender uses `rpicam-vid` when available and sends MJPEG frames over TCP to the Python mirror receiver listening on port `9000` by default.

@@ -130,6 +130,8 @@ class PipelineConfig:
     state_tracker_type: str = "rule"  # "rule" or "llm"
     mic_enabled: bool = True
     target_fps: int = 15
+    mirror_listen_host: str = "0.0.0.0"
+    mirror_listen_port: int = 9000
     smoothing_window_seconds: float = 10.0
     llm_cooldown_seconds: float = 30.0
     llm_cost_cap_usd: float = 5.0
@@ -152,5 +154,7 @@ class PipelineConfig:
             environment=Environment.MIRROR,
             camera_index=0,
             mic_enabled=False,
-            target_fps=10,
+            target_fps=15,
+            mirror_listen_host="0.0.0.0",
+            mirror_listen_port=9000,
         )

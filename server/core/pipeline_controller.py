@@ -11,6 +11,7 @@ load_dotenv()
 import os
 
 from audio.speech_tone_classifier import SpeechToneClassifier
+from input.camera_adapter import LocalCameraAdapter, NetworkCameraAdapter
 from input.mic_adapter import LocalMicAdapter
 from input.screenshot_manager import ScreenshotManager
 from models.types import (
@@ -20,7 +21,8 @@ from models.types import (
     PipelineConfig,
 )
 from reasoning.llm_engine import LLMEngine
-from state.state_tracker import StateTrackerProtocol
+from state.state_tracker import StateTracker
+from ui.desktop_ui import DesktopUI
 from vision.blink_detector import EarBlinkDetector
 from vision.eye_movement_detector import IrisGazeDetector
 from vision.face_landmarks import FaceLandmarkerTask
@@ -28,7 +30,6 @@ from vision.facial_expression_classifier import (
     BlendshapeExpressionClassifier,
 )
 from vision.posture_detector import MediaPipePostureDetector
-from ui.desktop_ui import DesktopUI
 
 logger = logging.getLogger(__name__)
 
@@ -59,6 +60,13 @@ class PipelineController:
         self._state_tracker = state_tracker
 
         # Input
+        if config.environment.value == "mirror":
+            self._camera = NetworkCameraAdapter(
+                config.mirror_listen_host,
+                config.mirror_listen_port,
+            )
+        else:
+            self._camera = LocalCameraAdapter(config.camera_index)
         self._mic: LocalMicAdapter | None = None
         if config.mic_enabled:
             self._mic = LocalMicAdapter()
@@ -294,12 +302,11 @@ class PipelineController:
 
 
 if __name__ == "__main__":
+    from config.logging_config import setup_logging
     from openai import OpenAI
     from input.camera_adapter import LocalCameraAdapter
     from reasoning.llm_engine import RateLimiter
     from state.state_tracker import StateTracker
-
-    from config.logging_config import setup_logging
 
     setup_logging()
 
