@@ -6,21 +6,22 @@ import struct
 import threading
 from collections.abc import Callable
 
-import cv2  # type: ignore[import-untyped]
 import numpy as np
+from config.third_party import OpenCVVideoCaptureProtocol, load_cv2
 from numpy.typing import NDArray
 
 logger = logging.getLogger(__name__)
 
 _FRAME_HEADER = struct.Struct("!4sIIIQ")
 _FRAME_MAGIC = b"CSJ1"
+cv2 = load_cv2()
 
 
 class LocalCameraAdapter:
     """Local webcam adapter implementing CameraSource protocol."""
 
     def __init__(self, camera_index: int = 0) -> None:
-        self._capture: cv2.VideoCapture = cv2.VideoCapture(camera_index)
+        self._capture: OpenCVVideoCaptureProtocol = cv2.VideoCapture(camera_index)
         self._subscribers: list[Callable[[NDArray[np.uint8]], None]] = []
 
     def read_frame(self) -> NDArray[np.uint8] | None:

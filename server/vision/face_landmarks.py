@@ -35,20 +35,32 @@ Usage example::
 from __future__ import annotations
 
 import os
+from collections.abc import Sequence
 from typing import Protocol
 
-import mediapipe as mp  # type: ignore[import-untyped]
 import numpy as np
-from mediapipe.tasks import python as mp_tasks  # type: ignore[import-untyped]
-from mediapipe.tasks.python import vision as mp_vision  # type: ignore[import-untyped]
+from config.third_party import (
+    FaceLandmarkerProtocol,
+    LandmarkListProtocol,
+    LandmarkProtocol,
+    MediaPipeTasksPythonProtocol,
+    MediaPipeVisionProtocol,
+    load_mediapipe,
+    load_mediapipe_tasks_python,
+    load_mediapipe_tasks_vision,
+)
+from numpy.typing import NDArray
 
 _MODEL_PATH = os.path.join(os.path.dirname(__file__), "face_landmarker_v2_with_blendshapes.task")
+mp = load_mediapipe()
+mp_tasks: MediaPipeTasksPythonProtocol = load_mediapipe_tasks_python()
+mp_vision: MediaPipeVisionProtocol = load_mediapipe_tasks_vision()
 
 
 class FaceLandmarkSource(Protocol):
     """Protocol for face landmark detection (MediaPipe Face Mesh)."""
 
-    def detect(self, frame_rgb: np.ndarray) -> list[np.ndarray] | None:
+    def detect(self, frame_rgb: NDArray[np.uint8]) -> list[NDArray[np.float32]] | None:
         """
         Detect faces and return landmark arrays.
 
@@ -65,7 +77,7 @@ class FaceLandmarkSource(Protocol):
 class BlendshapeLandmarkSource(Protocol):
     """Protocol for face landmark detection with blendshape output."""
 
-    def detect(self, frame_rgb: np.ndarray) -> list[np.ndarray] | None:
+    def detect(self, frame_rgb: NDArray[np.uint8]) -> list[NDArray[np.float32]] | None:
         """
         Detect faces and return landmark arrays.
 
@@ -96,7 +108,7 @@ class MediaPipeFaceLandmarkSource:
 
     def __init__(self, refine_landmarks: bool = True) -> None:
         self._refine_landmarks = refine_landmarks
-        self._face_mesh = mp.solutions.face_mesh.FaceMesh(  # type: ignore[attr-defined]
+        self._face_mesh = mp.solutions.face_mesh.FaceMesh(
             static_image_mode=False,
             max_num_faces=1,
             refine_landmarks=refine_landmarks,
@@ -104,7 +116,7 @@ class MediaPipeFaceLandmarkSource:
             min_tracking_confidence=0.5,
         )
 
-    def detect(self, frame_rgb: np.ndarray) -> list[np.ndarray] | None:
+    def detect(self, frame_rgb: NDArray[np.uint8]) -> list[NDArray[np.float32]] | None:
         """Detect face landmarks in an RGB frame.
 
         Args:
@@ -114,24 +126,27 @@ class MediaPipeFaceLandmarkSource:
             List of float32 arrays each shaped (478, 3) with normalized
             (x, y, z) coordinates, or None if no faces detected.
         """
-        results = self._face_mesh.process(frame_rgb)  # type: ignore[union-attr]
-        if not results.multi_face_landmarks:  # type: ignore[union-attr]
+        results = self._face_mesh.process(frame_rgb)
+        if not results.multi_face_landmarks:
             return None
         return [
-            self._landmarks_to_numpy(face_lm)  # type: ignore[arg-type]
-            for face_lm in results.multi_face_landmarks  # type: ignore[union-attr]
+            self._landmarks_to_numpy(face_lm)
+            for face_lm in results.multi_face_landmarks
         ]
 
     def close(self) -> None:
         """Release MediaPipe Face Mesh resources."""
-        self._face_mesh.close()  # type: ignore[union-attr]
+        self._face_mesh.close()
 
-    def _landmarks_to_numpy(self, face_landmarks: object) -> np.ndarray:
+    def _landmarks_to_numpy(
+        self,
+        face_landmarks: LandmarkListProtocol,
+    ) -> NDArray[np.float32]:
         arr = np.empty((self._NUM_LANDMARKS, 3), dtype=np.float32)
-        for i, lm in enumerate(face_landmarks.landmark):  # type: ignore[union-attr]
-            arr[i, 0] = lm.x  # type: ignore[union-attr]
-            arr[i, 1] = lm.y  # type: ignore[union-attr]
-            arr[i, 2] = lm.z  # type: ignore[union-attr]
+        for i, lm in enumerate(face_landmarks.landmark):
+            arr[i, 0] = lm.x
+            arr[i, 1] = lm.y
+            arr[i, 2] = lm.z
         return arr
 
 
@@ -154,15 +169,17 @@ class FaceLandmarkerTask:
     """
 
     def __init__(self) -> None:
-        opts = mp_vision.FaceLandmarkerOptions(  # type: ignore[misc]
-            base_options=mp_tasks.BaseOptions(model_asset_path=_MODEL_PATH),  # type: ignore[misc]
+        opts = mp_vision.FaceLandmarkerOptions(
+            base_options=mp_tasks.BaseOptions(model_asset_path=_MODEL_PATH),
             output_face_blendshapes=True,
             num_faces=1,
             min_face_detection_confidence=0.5,
             min_face_presence_confidence=0.5,
             min_tracking_confidence=0.5,
         )
-        self._landmarker = mp_vision.FaceLandmarker.create_from_options(opts)  # type: ignore[misc]
+        self._landmarker: FaceLandmarkerProtocol = (
+            mp_vision.FaceLandmarker.create_from_options(opts)
+        )
         self._last_blendshapes: list[dict[str, float]] | None = None
 
     @property
@@ -170,7 +187,7 @@ class FaceLandmarkerTask:
         """Blendshapes from the most recent detect() call, or None if no face."""
         return self._last_blendshapes
 
-    def detect(self, frame_rgb: np.ndarray) -> list[np.ndarray] | None:
+    def detect(self, frame_rgb: NDArray[np.uint8]) -> list[NDArray[np.float32]] | None:
         """Detect face landmarks and blendshapes in an RGB frame.
 
         Args:
@@ -181,22 +198,22 @@ class FaceLandmarkerTask:
             (x, y, z) coordinates, or None if no faces detected.
             Side-effect: populates last_blendshapes.
         """
-        mp_image = mp.Image(image_format=mp.ImageFormat.SRGB, data=frame_rgb)  # type: ignore[misc]
-        result = self._landmarker.detect(mp_image)  # type: ignore[union-attr]
+        mp_image = mp.Image(image_format=mp.ImageFormat.SRGB, data=frame_rgb)
+        result = self._landmarker.detect(mp_image)
 
-        if not result.face_landmarks:  # type: ignore[union-attr]
+        if not result.face_landmarks:
             self._last_blendshapes = None
             return None
 
         landmark_arrays = [
-            self._landmarks_to_numpy(face_lm)  # type: ignore[arg-type]
-            for face_lm in result.face_landmarks  # type: ignore[union-attr]
+            self._landmarks_to_numpy(face_lm)
+            for face_lm in result.face_landmarks
         ]
 
-        if result.face_blendshapes:  # type: ignore[union-attr]
+        if result.face_blendshapes:
             self._last_blendshapes = [
-                {cat.category_name: cat.score for cat in face_bs}  # type: ignore[union-attr]
-                for face_bs in result.face_blendshapes  # type: ignore[union-attr]
+                {cat.category_name: cat.score for cat in face_bs}
+                for face_bs in result.face_blendshapes
             ]
         else:
             self._last_blendshapes = None
@@ -205,15 +222,17 @@ class FaceLandmarkerTask:
 
     def close(self) -> None:
         """Release FaceLandmarker resources."""
-        self._landmarker.close()  # type: ignore[union-attr]
+        self._landmarker.close()
 
-    def _landmarks_to_numpy(self, face_landmarks: object) -> np.ndarray:
-        lms = list(face_landmarks)  # type: ignore[call-overload, arg-type]
-        arr = np.empty((len(lms), 3), dtype=np.float32)  # type: ignore[arg-type]
-        for i, lm in enumerate(lms):  # type: ignore[misc]
-            arr[i, 0] = lm.x  # type: ignore[union-attr]
-            arr[i, 1] = lm.y  # type: ignore[union-attr]
-            arr[i, 2] = lm.z  # type: ignore[union-attr]
+    def _landmarks_to_numpy(
+        self,
+        face_landmarks: Sequence[LandmarkProtocol],
+    ) -> NDArray[np.float32]:
+        arr = np.empty((len(face_landmarks), 3), dtype=np.float32)
+        for i, lm in enumerate(face_landmarks):
+            arr[i, 0] = lm.x
+            arr[i, 1] = lm.y
+            arr[i, 2] = lm.z
         return arr
 
 

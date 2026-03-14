@@ -3,11 +3,9 @@ from __future__ import annotations
 from typing import Protocol
 
 import numpy as np
+from config.third_party import AudioClassificationPipelineProtocol, load_transformers_pipeline
 from models.types import ClassifierResult
 from numpy.typing import NDArray
-from transformers import pipeline  # type: ignore[import-untyped]
-
-
 
 class SpeechToneClassifierProtocol(Protocol):
     """Protocol for speech tone classification from audio."""
@@ -43,7 +41,7 @@ class SpeechToneClassifier:
     """Classifies speech tone from audio using Hatman/audio-emotion-detection."""
 
     def __init__(self) -> None:
-        self._pipe = pipeline(
+        self._pipe: AudioClassificationPipelineProtocol = load_transformers_pipeline()(
             "audio-classification",
             model="Hatman/audio-emotion-detection",
         )
@@ -76,8 +74,14 @@ class SpeechToneClassifier:
         # Aggregate scores by protocol label.
         tone_scores: dict[str, float] = {"calm": 0.0, "stressed": 0.0, "monotone": 0.0}
         for r in results:
-            emotion = str(r["label"]).lower()
-            score = float(r["score"])  # type: ignore[arg-type]
+            label = r.get("label")
+            score_value = r.get("score")
+            if not isinstance(label, str):
+                continue
+            if not isinstance(score_value, int | float):
+                continue
+            emotion = label.lower()
+            score = float(score_value)
             tone = _EMOTION_TO_TONE.get(emotion)
             if tone is not None:
                 tone_scores[tone] += score

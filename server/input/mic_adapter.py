@@ -1,14 +1,41 @@
 from __future__ import annotations
 
+import importlib
 import logging
 import queue
 from collections.abc import Callable
+from typing import Protocol, runtime_checkable
 
 import numpy as np
-import sounddevice as sd  # type: ignore[import-untyped]
 from numpy.typing import NDArray
 
 logger = logging.getLogger(__name__)
+
+
+@runtime_checkable
+class _InputStreamProtocol(Protocol):
+    def start(self) -> None: ...
+
+    def stop(self) -> None: ...
+
+    def close(self) -> None: ...
+
+
+class _InputStreamFactory(Protocol):
+    def __call__(
+        self,
+        *,
+        samplerate: int,
+        channels: int,
+        blocksize: int,
+        dtype: str,
+        callback: Callable[[NDArray[np.float32], int, object, object], None],
+    ) -> _InputStreamProtocol: ...
+
+
+@runtime_checkable
+class _SoundDeviceModule(Protocol):
+    InputStream: _InputStreamFactory
 
 
 class LocalMicAdapter:
@@ -24,13 +51,14 @@ class LocalMicAdapter:
         self._channels = channels
         self._blocksize = blocksize
         self._queue: queue.Queue[NDArray[np.float32]] = queue.Queue(maxsize=2)
-        self._stream: sd.InputStream | None = None
+        self._stream: _InputStreamProtocol | None = None
         self._recording = False
         self._subscribers: list[Callable[[NDArray[np.float32]], None]] = []
 
     def start(self) -> None:
         if self._recording:
             return
+        sd = self._load_sounddevice()
         self._stream = sd.InputStream(
             samplerate=self._sample_rate,
             channels=self._channels,
@@ -74,7 +102,7 @@ class LocalMicAdapter:
         indata: NDArray[np.float32],
         frames: int,
         time_info: object,
-        status: sd.CallbackFlags,
+        status: object,
     ) -> None:
         del frames, time_info
         if status:
@@ -101,3 +129,18 @@ class LocalMicAdapter:
                 self._queue.put_nowait(chunk)
             except queue.Full:
                 pass
+
+    @staticmethod
+    def _load_sounddevice() -> _SoundDeviceModule:
+        try:
+            module = importlib.import_module("sounddevice")
+        except OSError as exc:
+            raise RuntimeError(
+                "sounddevice is installed, but the PortAudio system library is missing. "
+                "Install libportaudio2 (and optionally portaudio19-dev) for desktop audio."
+            ) from exc
+        if not isinstance(module, _SoundDeviceModule):
+            raise RuntimeError(
+                "sounddevice imported successfully, but InputStream is unavailable."
+            )
+        return module

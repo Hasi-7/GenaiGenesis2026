@@ -25,15 +25,18 @@ from __future__ import annotations
 import math
 from typing import Protocol
 
-import mediapipe as mp  # type: ignore[import-untyped]
 import numpy as np
+from config.third_party import PoseProtocol, load_mediapipe
 from models.types import ClassifierResult, PostureData
+from numpy.typing import NDArray
+
+mp = load_mediapipe()
 
 
 class PostureDetectorProtocol(Protocol):
     """Protocol for posture detection via MediaPipe Pose."""
 
-    def detect(self, frame_rgb: np.ndarray) -> PostureData | None:
+    def detect(self, frame_rgb: NDArray[np.uint8]) -> PostureData | None:
         """
         Detect pose and compute posture metrics.
 
@@ -99,7 +102,7 @@ class MediaPipePostureDetector:
     """
 
     def __init__(self) -> None:
-        self._pose = mp.solutions.pose.Pose(  # type: ignore[attr-defined]
+        self._pose: PoseProtocol = mp.solutions.pose.Pose(
             static_image_mode=False,
             model_complexity=1,
             smooth_landmarks=True,
@@ -107,7 +110,7 @@ class MediaPipePostureDetector:
             min_tracking_confidence=0.5,
         )
 
-    def detect(self, frame_rgb: np.ndarray) -> PostureData | None:
+    def detect(self, frame_rgb: NDArray[np.uint8]) -> PostureData | None:
         """Extract posture metrics from an RGB frame.
 
         Args:

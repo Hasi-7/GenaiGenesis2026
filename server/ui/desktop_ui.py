@@ -5,8 +5,9 @@ from __future__ import annotations
 import textwrap
 import time
 
-import cv2  # type: ignore[import-untyped]
 import numpy as np
+from config.third_party import load_cv2
+from numpy.typing import NDArray
 
 from models.types import (
     CognitiveState,
@@ -14,6 +15,8 @@ from models.types import (
     FrameAnalysis,
     LLMResponse,
 )
+
+cv2 = load_cv2()
 
 # ---------------------------------------------------------------------------
 # Colors (BGR)
@@ -51,7 +54,7 @@ def _label_color(label: str) -> tuple[int, int, int]:
 
 
 def _put(
-    frame: np.ndarray,  # type: ignore[type-arg]
+    frame: NDArray[np.uint8],
     text: str,
     x: int,
     y: int,
@@ -64,7 +67,7 @@ def _put(
 
 
 def _pill(
-    frame: np.ndarray,  # type: ignore[type-arg]
+    frame: NDArray[np.uint8],
     label: str,
     conf: float,
     x: int,
@@ -83,7 +86,7 @@ def _pill(
 
 
 def _ear_bar(
-    frame: np.ndarray,  # type: ignore[type-arg]
+    frame: NDArray[np.uint8],
     ear: float,
     x: int,
     y: int,
@@ -125,7 +128,7 @@ class DesktopUI:
 
     def render(
         self,
-        frame: np.ndarray,  # type: ignore[type-arg]
+        frame: NDArray[np.uint8],
         state: CognitiveState,
         llm_response: LLMResponse | None = None,
         analysis: FrameAnalysis | None = None,
@@ -161,7 +164,7 @@ class DesktopUI:
 
     def _draw_top_bar(
         self,
-        frame: np.ndarray,  # type: ignore[type-arg]
+        frame: NDArray[np.uint8],
         state: CognitiveState,
     ) -> None:
         _, w = frame.shape[:2]
@@ -185,7 +188,7 @@ class DesktopUI:
 
     def _draw_bottom_bar(
         self,
-        frame: np.ndarray,  # type: ignore[type-arg]
+        frame: NDArray[np.uint8],
         llm_response: LLMResponse | None,
     ) -> None:
         h, w = frame.shape[:2]
@@ -208,7 +211,7 @@ class DesktopUI:
 
     def _draw_sidebar(
         self,
-        frame: np.ndarray,  # type: ignore[type-arg]
+        frame: NDArray[np.uint8],
         analysis: FrameAnalysis | None,
     ) -> None:
         h = frame.shape[0]

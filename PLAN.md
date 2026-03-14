@@ -222,7 +222,7 @@ Main loop at `config.target_fps` (15 desktop, 10 mirror):
 
 - Keep `typeCheckingMode = "strict"` for our code
 - Add `reportMissingModuleSource = false` for cv2/mediapipe
-- Use `# type: ignore[import-untyped]` on cv2/mediapipe imports (~7-10 comments total, confined to 4 wrapper files)
+- Use typed runtime wrappers for cv2/mediapipe imports so wrapper files stay strict without local ignore comments
 - All wrapper functions explicitly annotate return types
 
 ---
