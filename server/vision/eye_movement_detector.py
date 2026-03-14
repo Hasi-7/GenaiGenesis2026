@@ -35,8 +35,9 @@ from models.types import ClassifierResult, GazeData
 # -----------------------------------------------------------------------
 
 # Iris centers
-_LEFT_IRIS = 468
-_RIGHT_IRIS = 473
+# MediaPipe assigns 468 to the RIGHT iris and 473 to the LEFT iris.
+_LEFT_IRIS = 473
+_RIGHT_IRIS = 468
 
 # Eye corners used to define the gaze bounding box.
 # Left eye: outer=263, inner=362  |  Right eye: outer=33, inner=133
@@ -101,7 +102,10 @@ class IrisGazeDetector:
         Returns:
             GazeData with horizontal_ratio, vertical_ratio, and direction.
         """
-        # Average left/right horizontal ratios
+        # Average left/right horizontal ratios.
+        # Left eye: outer(263) → inner(362) axis points toward nose (+x in flipped frame).
+        # Right eye: use inner(133) → outer(33) to get the same axis direction after
+        # horizontal flip (debug_webcam flips before MediaPipe, reversing right-eye axis).
         h_left = _gaze_ratio(
             landmarks[_LEFT_IRIS, :2],
             landmarks[_LEFT_EYE_OUTER, :2],
@@ -109,8 +113,8 @@ class IrisGazeDetector:
         )
         h_right = _gaze_ratio(
             landmarks[_RIGHT_IRIS, :2],
-            landmarks[_RIGHT_EYE_OUTER, :2],
             landmarks[_RIGHT_EYE_INNER, :2],
+            landmarks[_RIGHT_EYE_OUTER, :2],
         )
         h = float(np.mean([h_left, h_right]))
 

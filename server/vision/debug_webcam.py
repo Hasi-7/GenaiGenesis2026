@@ -17,10 +17,10 @@ import time
 import cv2  # type: ignore[import-untyped]
 import numpy as np
 
-from vision.face_landmarks import MediaPipeFaceLandmarkSource
+from vision.face_landmarks import FaceLandmarkerTask
 from vision.blink_detector import EarBlinkDetector
 from vision.eye_movement_detector import IrisGazeDetector
-from vision.facial_expression_classifier import LandmarkExpressionClassifier
+from vision.facial_expression_classifier import BlendshapeExpressionClassifier
 from vision.posture_detector import MediaPipePostureDetector
 from models.types import BlinkData, GazeData, PostureData, ClassifierResult
 
@@ -226,14 +226,16 @@ def run() -> None:
     if not cap.isOpened():
         raise RuntimeError("Could not open webcam (index 0).")
 
-    face_src = MediaPipeFaceLandmarkSource(refine_landmarks=True)
+    face_src = FaceLandmarkerTask()
     blink_det = EarBlinkDetector()
     gaze_det = IrisGazeDetector()
-    expr_clf = LandmarkExpressionClassifier()
+    expr_clf = BlendshapeExpressionClassifier()
     posture_det = MediaPipePostureDetector()
 
     prev_time = time.time()
     frame_count = 0
+
+    cv2.namedWindow("CognitiveSense — vision debug", cv2.WINDOW_NORMAL)
 
     try:
         while True:
@@ -261,7 +263,8 @@ def run() -> None:
                 blink_cls = blink_det.classify(blink)
                 gaze = gaze_det.detect(lm)
                 gaze_cls = gaze_det.classify(gaze)
-                expr_cls = expr_clf.classify(lm)
+                if face_src.last_blendshapes:
+                    expr_cls = expr_clf.classify(face_src.last_blendshapes[0])
 
             # --- Posture (uses full frame, not landmarks) ---
             posture: PostureData | None = posture_det.detect(rgb)

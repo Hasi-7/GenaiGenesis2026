@@ -117,6 +117,9 @@ class EarBlinkDetector:
         Confidence is a simple linear interpolation within each band.
         """
         bpm = data.blinks_per_minute
+        # No blinks recorded yet — not enough data to classify
+        if bpm == 0.0:
+            return ClassifierResult(label="normal", confidence=0.5)
         if bpm < 10.0:
             label = "stressed"
             conf = max(0.5, 1.0 - bpm / 20.0)

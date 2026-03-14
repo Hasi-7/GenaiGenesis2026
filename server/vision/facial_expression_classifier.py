@@ -1,193 +1,132 @@
-"""Landmark-geometry heuristic facial expression classifier.
+"""Blendshape-based facial expression classifier.
+
+Uses the 52 ARKit blendshape coefficients produced by MediaPipe's
+FaceLandmarkerTask (face_landmarker_v2_with_blendshapes.task) instead
+of raw landmark geometry.  Blendshapes are neural-network outputs that
+directly encode individual facial muscle movements, giving much better
+signal than distance heuristics.
 
 Expected input:
-    landmarks: np.ndarray of shape (478, 3) float32 — normalized face mesh
-    from MediaPipeFaceLandmarkSource for a single face.
+    blendshapes: dict[str, float] — mapping of blendshape category name
+    to score in [0, 1], as returned by FaceLandmarkerTask.last_blendshapes[i].
 
 Expected output:
     classify() -> ClassifierResult with label in {"neutral", "tense", "relaxed"}
                   and a confidence in [0, 1].
-    raw_scores() -> dict[str, float] mapping each label to its raw heuristic score.
+    raw_scores() -> dict[str, float] mapping each label to its raw score.
 
 Usage example::
 
-    clf = LandmarkExpressionClassifier()
-    result = clf.classify(landmarks_478x3)
-    scores = clf.raw_scores(landmarks_478x3)
-    print(result.label, result.confidence, scores)
+    face_src = FaceLandmarkerTask()
+    clf = BlendshapeExpressionClassifier()
 
-TODO: Replace heuristic geometry with a FER CNN (e.g. trained on FER2013).
-      See the "FER CNN integration" section at the bottom of this file.
+    faces = face_src.detect(frame_rgb)
+    if faces and face_src.last_blendshapes:
+        result = clf.classify(face_src.last_blendshapes[0])
+        print(result.label, result.confidence)
 
-Single-thread assumption: stateless — safe to call from any context, but
-designed for the single-threaded 15 FPS main loop.
+Single-thread assumption: stateless classifier, safe to call at 15 FPS.
 """
 
 from __future__ import annotations
-
-import numpy as np
 
 from models.types import ClassifierResult
 
 
 # -----------------------------------------------------------------------
-# MediaPipe Face Mesh landmark indices used for expression heuristics
+# Blendshape keys used in scoring
 # -----------------------------------------------------------------------
 
-# Mouth openness: upper lip (13), lower lip (14)
-_UPPER_LIP = 13
-_LOWER_LIP = 14
+# Tense / stressed signals
+_BROW_DOWN_L = "browDownLeft"
+_BROW_DOWN_R = "browDownRight"
+_BROW_INNER_UP = "browInnerUp"        # inner brow raised in worry/concern
+_EYE_SQUINT_L = "eyeSquintLeft"
+_EYE_SQUINT_R = "eyeSquintRight"
+_NOSE_SNEER_L = "noseSneerLeft"
+_NOSE_SNEER_R = "noseSneerRight"
+_MOUTH_PRESS_L = "mouthPressLeft"
+_MOUTH_PRESS_R = "mouthPressRight"
+_MOUTH_FROWN_L = "mouthFrownLeft"
+_MOUTH_FROWN_R = "mouthFrownRight"
 
-# Jaw open: chin (152) vs nose tip (4)
-_CHIN = 152
-_NOSE_TIP = 4
-
-# Brow landmarks: left inner brow (65), left outer brow (105)
-#                right inner brow (295), right outer brow (334)
-_LEFT_BROW_INNER = 65
-_LEFT_BROW_OUTER = 105
-_RIGHT_BROW_INNER = 295
-_RIGHT_BROW_OUTER = 334
-
-# Eye landmarks for squint detection: left upper (386), left lower (374)
-#                                      right upper (159), right lower (145)
-_LEFT_EYE_TOP = 386
-_LEFT_EYE_BOTTOM = 374
-_RIGHT_EYE_TOP = 159
-_RIGHT_EYE_BOTTOM = 145
-
-# Reference distance: inter-pupil / inter-eye-corner for normalization
-# Using outer eye corners: left=263, right=33
-_LEFT_EYE_OUTER = 263
-_RIGHT_EYE_OUTER = 33
+# Relaxed / positive signals
+_MOUTH_SMILE_L = "mouthSmileLeft"
+_MOUTH_SMILE_R = "mouthSmileRight"
+_CHEEK_SQUINT_L = "cheekSquintLeft"   # Duchenne smile marker (genuine)
+_CHEEK_SQUINT_R = "cheekSquintRight"
+_JAW_OPEN = "jawOpen"                 # open/relaxed mouth
 
 
-def _norm_dist(a: np.ndarray, b: np.ndarray, scale: float) -> float:
-    """Euclidean distance between 2-D points, divided by scale."""
-    d = float(np.linalg.norm(a[:2] - b[:2]))
-    return d / scale if scale > 1e-6 else 0.0
+def _get(bs: dict[str, float], key: str) -> float:
+    return bs.get(key, 0.0)
 
 
-class LandmarkExpressionClassifier:
-    """Classifies facial expressions using geometric heuristics.
+class BlendshapeExpressionClassifier:
+    """Classifies facial expression from MediaPipe blendshape coefficients.
 
-    Three heuristic features are computed on each call to classify():
-      1. mouth_openness – normalised lip separation.
-      2. brow_raise     – normalised brow-to-eye distance (raised brow = tense/surprised).
-      3. eye_squint     – normalised eye aperture (squint = tense/stressed).
+    Tense signals:
+        - browDownLeft / browDownRight   (brow furrow — concentrated/stressed)
+        - browInnerUp                    (inner brow raised — worried/concerned)
+        - eyeSquintLeft / eyeSquintRight (eye squint — stress or strain)
+        - noseSneerLeft / noseSneerRight (nose wrinkle — disgust/stress)
+        - mouthPressLeft / mouthPressRight (tight lips — tension)
+        - mouthFrownLeft / mouthFrownRight (mouth frown — negative affect)
 
-    Labels:
-        "tense"   – furrowed brows and/or squinted eyes
-        "relaxed" – open mouth (slight smile / yawn) with raised brows
-        "neutral" – default when no strong signal
-
-    # TODO: FER CNN integration
-    # Replace this class body with a call to a FER model for higher accuracy.
-    # Recommended model: FER2013-trained MobileNet or ResNet-lite.
-    # Install: pip install fer  (or) pip install deepface
-    # Example swap-in:
-    #
-    #   from fer import FER
-    #
-    #   class LandmarkExpressionClassifier:
-    #       def __init__(self) -> None:
-    #           self._model = FER(mtcnn=False)  # MTCNN disabled; we crop via landmarks
-    #
-    #       def classify(self, landmarks: np.ndarray) -> ClassifierResult:
-    #           # Crop face ROI from frame using landmarks bounding box
-    #           # Pass cropped face_bgr to self._model.detect_emotions(face_bgr)
-    #           # Map FER2013 labels (angry→tense, happy→relaxed, neutral→neutral, ...)
-    #           ...
-    #
-    # The raw_scores() method can return model softmax outputs instead.
+    Relaxed signals:
+        - mouthSmileLeft / mouthSmileRight (smile)
+        - cheekSquintLeft / cheekSquintRight (genuine smile Duchenne marker)
+        - jawOpen (relaxed open mouth)
     """
 
-    def classify(self, landmarks: np.ndarray) -> ClassifierResult:
+    def classify(self, blendshapes: dict[str, float]) -> ClassifierResult:
         """Return the top expression label and its confidence.
 
         Args:
-            landmarks: float32 array shape (478, 3) for one face.
+            blendshapes: dict mapping ARKit blendshape name to score [0, 1].
         """
-        scores = self.raw_scores(landmarks)
+        scores = self.raw_scores(blendshapes)
         label = max(scores, key=lambda k: scores[k])
-        top_score = scores[label]
-        # Softmax-style normalisation for confidence
+        top = scores[label]
         total = sum(scores.values()) + 1e-8
-        conf = top_score / total
-        return ClassifierResult(label=label, confidence=round(conf, 3))
+        conf = round(top / total, 3)
+        return ClassifierResult(label=label, confidence=conf)
 
-    def raw_scores(self, landmarks: np.ndarray) -> dict[str, float]:
-        """Compute raw heuristic scores for each expression label.
+    def raw_scores(self, blendshapes: dict[str, float]) -> dict[str, float]:
+        """Compute raw scores for each expression label.
 
         Returns:
             dict with keys "neutral", "tense", "relaxed" and float values.
-            Higher score = stronger evidence for that label.
         """
-        scale = self._face_scale(landmarks)
+        g = _get  # shorthand
 
-        mouth = _norm_dist(landmarks[_UPPER_LIP], landmarks[_LOWER_LIP], scale)
-        brow = self._brow_raise(landmarks, scale)
-        squint = self._eye_squint(landmarks, scale)
+        brow_furrow = (g(blendshapes, _BROW_DOWN_L) + g(blendshapes, _BROW_DOWN_R)) / 2.0
+        brow_worry  = g(blendshapes, _BROW_INNER_UP)
+        squint      = (g(blendshapes, _EYE_SQUINT_L) + g(blendshapes, _EYE_SQUINT_R)) / 2.0
+        sneer       = (g(blendshapes, _NOSE_SNEER_L) + g(blendshapes, _NOSE_SNEER_R)) / 2.0
+        lip_press   = (g(blendshapes, _MOUTH_PRESS_L) + g(blendshapes, _MOUTH_PRESS_R)) / 2.0
+        frown       = (g(blendshapes, _MOUTH_FROWN_L) + g(blendshapes, _MOUTH_FROWN_R)) / 2.0
 
-        # Heuristic scoring
-        tense_score = squint * 2.0 + max(0.0, 0.05 - brow) * 10.0
-        relaxed_score = mouth * 3.0 + brow * 2.0
-        neutral_score = 1.0 - 0.5 * abs(tense_score - relaxed_score) / (tense_score + relaxed_score + 1e-6)
+        smile       = (g(blendshapes, _MOUTH_SMILE_L) + g(blendshapes, _MOUTH_SMILE_R)) / 2.0
+        cheek_sq    = (g(blendshapes, _CHEEK_SQUINT_L) + g(blendshapes, _CHEEK_SQUINT_R)) / 2.0
+        jaw_open    = g(blendshapes, _JAW_OPEN)
+
+        tense_score   = (brow_furrow * 1.5 + brow_worry * 1.5 + squint * 1.0
+                         + sneer * 2.0 + lip_press * 1.5 + frown * 1.5)
+        relaxed_score = smile * 3.0 + cheek_sq * 2.5 + jaw_open * 0.5
+
+        # Neutral wins by default; suppressed when tense or relaxed is strong
+        neutral_score = max(0.4, 1.0 - tense_score - relaxed_score)
 
         return {
             "neutral": round(max(0.0, neutral_score), 4),
-            "tense": round(max(0.0, tense_score), 4),
-            "relaxed": round(max(0.0, relaxed_score), 4),
+            "tense":   round(max(0.0, tense_score),   4),
+            "relaxed": round(max(0.0, relaxed_score),  4),
         }
 
-    # ------------------------------------------------------------------
-    # Private feature extractors
-    # ------------------------------------------------------------------
-
-    def _face_scale(self, landmarks: np.ndarray) -> float:
-        """Inter-eye distance as a normalisation scale factor."""
-        return float(np.linalg.norm(
-            landmarks[_LEFT_EYE_OUTER, :2] - landmarks[_RIGHT_EYE_OUTER, :2]
-        ))
-
-    def _brow_raise(self, landmarks: np.ndarray, scale: float) -> float:
-        """Mean normalised distance from brow to eye outer corner (higher = raised)."""
-        left = _norm_dist(landmarks[_LEFT_BROW_INNER], landmarks[_LEFT_EYE_TOP], scale)
-        right = _norm_dist(landmarks[_RIGHT_BROW_INNER], landmarks[_RIGHT_EYE_TOP], scale)
-        return (left + right) / 2.0
-
-    def _eye_squint(self, landmarks: np.ndarray, scale: float) -> float:
-        """Inverse of eye aperture (higher = more squinted)."""
-        left_aperture = _norm_dist(landmarks[_LEFT_EYE_TOP], landmarks[_LEFT_EYE_BOTTOM], scale)
-        right_aperture = _norm_dist(landmarks[_RIGHT_EYE_TOP], landmarks[_RIGHT_EYE_BOTTOM], scale)
-        avg_aperture = (left_aperture + right_aperture) / 2.0
-        # Typical open-eye aperture is ~0.08-0.12 of face scale; invert
-        return max(0.0, 0.10 - avg_aperture) * 10.0
-
 
 # ----------------------------------------------------------------------
-# Maintainer notes
+# Backwards-compat alias so any code that imported LandmarkExpressionClassifier
+# still works without changes during the transition.
 # ----------------------------------------------------------------------
-# FER CNN integration (see TODO above):
-#   The heuristic approach is intentionally simple. FER2013 models achieve
-#   ~65-70% accuracy on the 7-class dataset; mapping to our 3-class schema
-#   (neutral, tense, relaxed) typically yields >80% accuracy for in-the-wild
-#   webcam images. Swap the class body when:
-#     - Ground-truth labels are available for your user population.
-#     - pip install fer / deepface is acceptable (adds ~200 MB).
-#   Keep the same classify() / raw_scores() signatures so no other modules
-#   need to change.
-#
-# Mouth openness threshold:
-#   Landmark 13 (upper lip) to 14 (lower lip) normalised by inter-eye
-#   distance. Values > 0.04 typically indicate an open mouth (yawn, speech,
-#   relaxed expression). Tune by sampling 100 "relaxed" frames.
-#
-# Brow-raise threshold:
-#   Brow-to-eye distance < 0.05 (normalised) suggests furrowed brows
-#   commonly associated with concentration/stress. > 0.08 suggests surprise
-#   or relaxation.
-#
-# Eye squint:
-#   Aperture < 0.08 indicates squinting. The 0.10 reference is approximate;
-#   varies with subject anatomy. Consider per-session calibration.
+LandmarkExpressionClassifier = BlendshapeExpressionClassifier

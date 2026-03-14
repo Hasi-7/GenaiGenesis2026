@@ -37,8 +37,9 @@ _LEFT_EAR = 7
 _RIGHT_EAR = 8
 _NOSE = 0
 
-# Thresholds (degrees)
-_SLOUCH_ANGLE_DEG = 15.0   # deviation of shoulder line from horizontal
+# Thresholds
+_SLOUCH_ANGLE_DEG = 8.0    # shoulder line deviation from horizontal
+_SLOUCH_RATIO_MIN = 0.55   # min ear-to-shoulder vertical ratio (below = slouching)
 _LEAN_TILT_DEG = 20.0      # head tilt from vertical axis
 
 
@@ -105,11 +106,25 @@ class MediaPipePostureDetector:
         nose = pt(_NOSE)
 
         shoulder_angle = _angle_from_horizontal(left_shoulder, right_shoulder)
-        # Use midpoint of ears as head anchor; compare to nose for tilt
-        ear_mid = (left_ear + right_ear) / 2.0
-        head_tilt = _angle_from_vertical(ear_mid, nose)
+        # Head tilt: angle of the ear-to-ear line from horizontal.
+        # When upright, both ears are at the same height → ~0°.
+        # When the head/body leans sideways, one ear drops → angle increases.
+        head_tilt = _angle_from_horizontal(left_ear, right_ear)
 
-        is_slouching = shoulder_angle > _SLOUCH_ANGLE_DEG
+        # Forward-slouch detection: as the head drops toward the shoulders,
+        # the vertical ear-to-shoulder distance shrinks relative to shoulder width.
+        # A front-facing camera can't detect the depth (z) change of forward slouch
+        # via shoulder angle alone, so we use this ratio as a second signal.
+        shoulder_mid = (left_shoulder + right_shoulder) / 2.0
+        ear_mid = (left_ear + right_ear) / 2.0
+        shoulder_width = float(np.linalg.norm(left_shoulder - right_shoulder))
+        # In image coords y increases downward, so shoulder_mid[1] > ear_mid[1] when upright
+        vertical_ratio = (shoulder_mid[1] - ear_mid[1]) / (shoulder_width + 1e-6)
+
+        is_slouching = (
+            shoulder_angle > _SLOUCH_ANGLE_DEG
+            or vertical_ratio < _SLOUCH_RATIO_MIN
+        )
 
         return PostureData(
             shoulder_angle=round(float(shoulder_angle), 2),

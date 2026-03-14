@@ -126,11 +126,11 @@ class EyeMovementDetectorProtocol(Protocol):
 
 
 class ExpressionClassifierProtocol(Protocol):
-    """Protocol for facial expression classification from landmarks."""
+    """Protocol for facial expression classification from blendshapes."""
 
-    def classify(self, landmarks: NDArray[np.float32]) -> ClassifierResult:
+    def classify(self, blendshapes: dict[str, float]) -> ClassifierResult:
         """
-        Classify facial expression from landmark geometry.
+        Classify facial expression from MediaPipe blendshape coefficients.
 
         Labels: "neutral", "tense", "relaxed".
         """
