@@ -13,6 +13,9 @@ type Feedback = {
   text: string;
   label?: string;
   timestamp: number;
+  triggerKind?: string;
+  severity?: string;
+  shouldNotify?: boolean;
 };
 
 type TransportState = {
@@ -37,6 +40,10 @@ const CAPTURE_HEIGHT = 480;
 const MIC_SETTING_KEY = 'cognitivesense.mic-enabled';
 const AUDIO_SAMPLE_RATE = 16_000;
 const AUDIO_FLUSH_INTERVAL_MS = 250;
+const NEGATIVE_NOTIFICATION_DELAY_MS = 5_000;
+const NEGATIVE_NOTIFICATION_REPEAT_MS = 120_000;
+
+const NEGATIVE_LABELS = new Set<CognitiveLabel>(['FATIGUED', 'STRESSED', 'DISTRACTED']);
 
 const sleep = (ms: number) => new Promise((resolve) => window.setTimeout(resolve, ms));
 
@@ -52,6 +59,17 @@ const formatClock = (timestamp: number) => {
   });
 };
 
+const buildNegativeNotificationText = (label: CognitiveLabel, durationMs: number) => {
+  const seconds = Math.max(5, Math.round(durationMs / 1000));
+  if (label === 'STRESSED') {
+    return `You have looked stressed for about ${seconds} seconds. Take one slow breath and reset your posture.`;
+  }
+  if (label === 'FATIGUED') {
+    return `You have looked fatigued for about ${seconds} seconds. Take a short break, hydrate, or stretch.`;
+  }
+  return `You have seemed distracted for about ${seconds} seconds. Try refocusing on one task and clearing distractions.`;
+};
+
 export const App = () => {
   const videoRef = useRef<HTMLVideoElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
@@ -65,6 +83,11 @@ export const App = () => {
   const feedbackTimerRef = useRef<number | null>(null);
   const lastStateLabelRef = useRef<CognitiveLabel>('UNKNOWN');
   const lastRecommendationRef = useRef('');
+  const negativeEpisodeRef = useRef<{
+    startedAt: number;
+    lastNotifiedAt: number;
+    latestLabel: CognitiveLabel;
+  } | null>(null);
 
   const [cogState, setCogState] = useState<CognitiveState>({
     label: 'UNKNOWN',
@@ -435,17 +458,49 @@ export const App = () => {
           pushEvent(`Recommend: ${nextState.recommendations[0]}`);
           lastRecommendationRef.current = nextState.recommendations[0];
         }
+
+        const nowMs = Date.now();
+        if (NEGATIVE_LABELS.has(label)) {
+          if (negativeEpisodeRef.current === null) {
+            negativeEpisodeRef.current = {
+              startedAt: nowMs,
+              lastNotifiedAt: 0,
+              latestLabel: label,
+            };
+          } else {
+            negativeEpisodeRef.current.latestLabel = label;
+          }
+
+          const episode = negativeEpisodeRef.current;
+          const durationMs = nowMs - episode.startedAt;
+          if (
+            durationMs >= NEGATIVE_NOTIFICATION_DELAY_MS &&
+            nowMs - episode.lastNotifiedAt >= NEGATIVE_NOTIFICATION_REPEAT_MS
+          ) {
+            const notificationText = buildNegativeNotificationText(
+              episode.latestLabel,
+              durationMs,
+            );
+            episode.lastNotifiedAt = nowMs;
+            pushEvent(`Alert: ${notificationText}`);
+            void window.cognitiveSense.notify('CognitiveSense', notificationText);
+          }
+        } else {
+          negativeEpisodeRef.current = null;
+        }
       }
 
       if (payload.type === 'feedback') {
         const nextFeedback: Feedback = {
           text: String(payload.text ?? ''),
           label: payload.label ? String(payload.label) : undefined,
+          triggerKind: payload.triggerKind ? String(payload.triggerKind) : undefined,
+          severity: payload.severity ? String(payload.severity) : undefined,
+          shouldNotify: Boolean(payload.shouldNotify),
           timestamp: Number(payload.timestamp ?? Date.now() / 1000) * 1000,
         };
         setFeedback(nextFeedback);
         pushEvent(`Return: ${nextFeedback.text}`);
-        void window.cognitiveSense.notify('CognitiveSense', nextFeedback.text);
         if (feedbackTimerRef.current !== null) {
           clearTimeout(feedbackTimerRef.current);
         }

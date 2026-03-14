@@ -32,12 +32,18 @@ const controlState = 2;
 const controlFeedback = 3;
 const controlVersion = 1;
 const sourceDesktop = 1;
+const feedbackHeaderVersion = 1;
 const capabilitySendVideo = 1 << 0;
 const capabilitySendAudio = 1 << 1;
 const capabilityReceiveState = 1 << 2;
 const capabilityBinaryControl = 1 << 4;
 const streamVideoRecent = 1 << 0;
 const streamAudioRecent = 1 << 1;
+const triggerTransition = 1;
+const triggerSustainedAlert = 2;
+const severitySoft = 1;
+const severityWarning = 2;
+const severityUrgent = 3;
 
 const stateLabels: Record<number, string> = {
   0: 'UNKNOWN',
@@ -71,6 +77,59 @@ const recommendationLabels: Record<number, string> = {
   6: 'Silence distractions',
   7: 'Keep your current pace',
   8: 'Reset your posture',
+};
+
+const triggerLabels: Record<number, string> = {
+  [triggerTransition]: 'transition',
+  [triggerSustainedAlert]: 'sustained_alert',
+};
+
+const severityLabels: Record<number, string> = {
+  [severitySoft]: 'soft',
+  [severityWarning]: 'warning',
+  [severityUrgent]: 'urgent',
+};
+
+const showDesktopNotification = (
+  title: string,
+  body: string,
+  severity: string = 'normal',
+) => {
+  if (Notification.isSupported()) {
+    new Notification({
+      title,
+      body,
+      urgency:
+        severity === 'urgent'
+          ? 'critical'
+          : severity === 'warning'
+            ? 'normal'
+            : 'low',
+      silent: false,
+      ...(process.platform === 'linux' ? {} : { icon: createTrayIcon() }),
+    }).show();
+  }
+
+  if (mainWindow) {
+    mainWindow.flashFrame(true);
+    setTimeout(() => {
+      mainWindow?.flashFrame(false);
+    }, 6000);
+  }
+};
+
+const notifyForServerFeedback = (
+  text: string,
+  severity: string,
+  triggerKind: string,
+) => {
+  const title =
+    triggerKind === 'sustained_alert'
+      ? severity === 'urgent'
+        ? 'CognitiveSense Alert'
+        : 'CognitiveSense Check-in'
+      : 'CognitiveSense';
+  showDesktopNotification(title, text, severity);
 };
 
 type RendererTransportState = 'connecting' | 'connected' | 'disconnected';
@@ -272,15 +331,31 @@ const emitStateTelemetry = (payload: Buffer) => {
 };
 
 const emitFeedbackTelemetry = (payload: Buffer) => {
-  const text = payload.toString('utf8').trim();
+  let textPayload = payload;
+  let triggerKind = 'transition';
+  let severity = 'soft';
+  let shouldNotify = false;
+
+  if (payload.length >= 4 && payload.readUInt8(0) === feedbackHeaderVersion) {
+    triggerKind = triggerLabels[payload.readUInt8(1)] ?? triggerKind;
+    severity = severityLabels[payload.readUInt8(2)] ?? severity;
+    shouldNotify = Boolean(payload.readUInt8(3));
+    textPayload = payload.subarray(4);
+  }
+
+  const text = textPayload.toString('utf8').trim();
   if (!text) {
     return;
   }
   emitToRenderer('telemetry:event', {
     type: 'feedback',
     text,
+    triggerKind,
+    severity,
+    shouldNotify,
     timestamp: Date.now() / 1000,
   });
+
 };
 
 const parseBackendPackets = (chunk: Buffer) => {
@@ -419,6 +494,9 @@ const createWindow = async () => {
   mainWindow.webContents.on('did-finish-load', () => {
     emitTransportSnapshot();
   });
+  mainWindow.on('focus', () => {
+    mainWindow?.flashFrame(false);
+  });
 
   await mainWindow.loadURL(getRendererUrl()).catch((error: unknown) => {
     console.error('Failed to load renderer URL', error);
@@ -484,14 +562,7 @@ app.whenReady().then(async () => {
     app.quit();
   });
   ipcMain.handle('shell:notify', (_event, title: string, body: string) => {
-    if (Notification.isSupported()) {
-      new Notification({
-        title,
-        body,
-        urgency: 'normal',
-        ...(process.platform === 'linux' ? {} : { icon: createTrayIcon() }),
-      }).show();
-    }
+    showDesktopNotification(title, body, 'warning');
   });
   ipcMain.on(
     'stream:frame',

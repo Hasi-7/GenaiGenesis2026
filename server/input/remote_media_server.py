@@ -33,6 +33,7 @@ _EVENT_FEEDBACK = 3
 
 _HELLO_PAYLOAD = struct.Struct("!BBH")
 _STATE_PAYLOAD = struct.Struct(f"!BBBBI{MAX_INDICATORS}B{MAX_RECOMMENDATIONS}B")
+_FEEDBACK_HEADER = struct.Struct("!BBBB")
 
 _HELLO_VERSION = 1
 
@@ -54,12 +55,30 @@ _STATE_FATIGUED = 2
 _STATE_STRESSED = 3
 _STATE_DISTRACTED = 4
 
+_TRIGGER_TRANSITION = 1
+_TRIGGER_SUSTAINED_ALERT = 2
+
+_SEVERITY_SOFT = 1
+_SEVERITY_WARNING = 2
+_SEVERITY_URGENT = 3
+
 _STATE_LABEL_TO_ID = {
     CognitiveStateLabel.UNKNOWN: _STATE_UNKNOWN,
     CognitiveStateLabel.FOCUSED: _STATE_FOCUSED,
     CognitiveStateLabel.FATIGUED: _STATE_FATIGUED,
     CognitiveStateLabel.STRESSED: _STATE_STRESSED,
     CognitiveStateLabel.DISTRACTED: _STATE_DISTRACTED,
+}
+
+_TRIGGER_KIND_TO_ID = {
+    "transition": _TRIGGER_TRANSITION,
+    "sustained_alert": _TRIGGER_SUSTAINED_ALERT,
+}
+
+_SEVERITY_TO_ID = {
+    "soft": _SEVERITY_SOFT,
+    "warning": _SEVERITY_WARNING,
+    "urgent": _SEVERITY_URGENT,
 }
 
 
@@ -242,7 +261,12 @@ class RemoteClientSession:
         del state
         if not self.has_state_telemetry:
             return
-        payload = response.feedback_text.encode("utf-8")
+        payload = _FEEDBACK_HEADER.pack(
+            _HELLO_VERSION,
+            _TRIGGER_KIND_TO_ID.get(response.trigger_kind, _TRIGGER_TRANSITION),
+            _SEVERITY_TO_ID.get(response.severity, _SEVERITY_SOFT),
+            1 if response.should_notify else 0,
+        ) + response.feedback_text.encode("utf-8")
         self._send_packet(
             _EVENT_MAGIC,
             _EVENT_FEEDBACK,

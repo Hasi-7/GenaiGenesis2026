@@ -7,6 +7,7 @@ from collections.abc import Callable
 from typing import Protocol
 
 from audio.speech_tone_classifier import SpeechToneClassifier
+from core.sustained_state_monitor import SustainedStateMonitor
 from dotenv import load_dotenv
 from input.mic_adapter import LocalMicAdapter
 from input.screenshot_manager import ScreenshotManager
@@ -18,6 +19,7 @@ from models.types import (
     LLMRequest,
     LLMResponse,
     PipelineConfig,
+    SustainedStateAlert,
 )
 from reasoning.llm_engine import LLMEngine
 from state.state_tracker import StateTrackerProtocol
@@ -73,6 +75,7 @@ class PipelineController:
         if self._mic is None and config.mic_enabled:
             self._mic = LocalMicAdapter()
         self._telemetry_sink = telemetry_sink
+        self._sustained_state_monitor = SustainedStateMonitor(config)
 
         # Vision
         self._face_detector = FaceLandmarkerTask()
@@ -271,6 +274,19 @@ class PipelineController:
         if self._telemetry_sink is not None:
             self._telemetry_sink.publish_state(current_state, analysis)
 
+        sustained_alert = self._sustained_state_monitor.observe(current_state)
+        if sustained_alert is not None:
+            logger.info(
+                "_tick: sustained alert label=%s duration=%.1fs conf=%.2f repeats=%d",
+                sustained_alert.label.value,
+                sustained_alert.duration_seconds,
+                sustained_alert.confidence,
+                sustained_alert.repeat_count,
+            )
+            response = self._request_sustained_feedback(current_state, sustained_alert)
+            if response is not None:
+                self._emit_feedback(response, current_state)
+
         # 9. LLM reasoning on state transition
         if transition is not None:
             logger.info(
@@ -285,6 +301,8 @@ class PipelineController:
                 current_state=current_state,
                 transition=transition,
                 recent_analyses=(self._state_tracker.get_recent_analyses(5.0)),
+                sustained_alert=None,
+                trigger_kind="transition",
             )
             response = self._llm_engine.request_feedback(request)
             logger.debug(
@@ -292,15 +310,7 @@ class PipelineController:
                 "response" if response else "rate-limited",
             )
             if response is not None:
-                self._last_response = response
-                logger.info(
-                    "_tick: LLM response emitted, notifying %d subscribers",
-                    len(self._subscribers),
-                )
-                print(response.feedback_text)
-                self._notify_subscribers(response)
-                if self._telemetry_sink is not None:
-                    self._telemetry_sink.publish_feedback(response, current_state)
+                self._emit_feedback(response, current_state)
 
         # 10. Render UI
         if isinstance(self._renderer, DesktopUI):
@@ -323,6 +333,75 @@ class PipelineController:
                 callback(response)
             except Exception:
                 logger.exception("Response subscriber raised an exception")
+
+    def _emit_feedback(
+        self,
+        response: LLMResponse,
+        current_state: CognitiveState,
+    ) -> None:
+        self._last_response = response
+        logger.info(
+            "_tick: feedback emitted kind=%s notify=%s subscribers=%d",
+            response.trigger_kind,
+            response.should_notify,
+            len(self._subscribers),
+        )
+        print(response.feedback_text)
+        self._notify_subscribers(response)
+        if self._telemetry_sink is not None:
+            self._telemetry_sink.publish_feedback(response, current_state)
+
+    def _request_sustained_feedback(
+        self,
+        current_state: CognitiveState,
+        sustained_alert: SustainedStateAlert,
+    ) -> LLMResponse | None:
+        jpeg_bytes = self._screenshot_manager.encode_jpeg()
+        request = LLMRequest(
+            frame_jpeg_bytes=jpeg_bytes,
+            current_state=current_state,
+            transition=None,
+            recent_analyses=self._state_tracker.get_recent_analyses(5.0),
+            sustained_alert=sustained_alert,
+            trigger_kind="sustained_alert",
+        )
+        response = self._llm_engine.request_feedback(request)
+        if response is not None:
+            return response
+        return self._fallback_sustained_feedback(current_state, sustained_alert)
+
+    def _fallback_sustained_feedback(
+        self,
+        current_state: CognitiveState,
+        sustained_alert: SustainedStateAlert,
+    ) -> LLMResponse:
+        duration = max(1, round(sustained_alert.duration_seconds))
+        if sustained_alert.label.value == "stressed":
+            text = (
+                f"You have looked stressed for about {duration} seconds. "
+                "Take one slow breath and reset your posture before continuing."
+            )
+            severity = "urgent"
+        elif sustained_alert.label.value == "fatigued":
+            text = (
+                f"You have looked fatigued for about {duration} seconds. "
+                "Take a short break, hydrate, or stretch before pushing on."
+            )
+            severity = "warning"
+        else:
+            text = (
+                f"You have seemed distracted for about {duration} seconds. "
+                "Try refocusing on one task and clearing nearby distractions."
+            )
+            severity = "soft"
+
+        return LLMResponse(
+            feedback_text=text,
+            timestamp=time.time(),
+            trigger_kind="sustained_alert",
+            should_notify=True,
+            severity=severity,
+        )
 
     def _cleanup(self) -> None:
         with self._cleanup_lock:

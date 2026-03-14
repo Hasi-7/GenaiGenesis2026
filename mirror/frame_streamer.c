@@ -29,6 +29,7 @@
 #define EVENT_HELLO 1U
 #define EVENT_STATE 2U
 #define EVENT_FEEDBACK 3U
+#define FEEDBACK_HEADER_VERSION 1U
 
 #define HELLO_VERSION 1U
 #define SOURCE_MIRROR 2U
@@ -499,7 +500,17 @@ static void drain_control_packets(
                 && payload_size > 0U
             ) {
                 const uint8_t *payload = control_buffer + FRAME_HEADER_SIZE;
-                printf("LLM feedback: %.*s\n", (int) payload_size, (const char *) payload);
+                const uint8_t *text_payload = payload;
+                size_t text_payload_size = payload_size;
+                if (payload_size >= 4U && payload[0] == FEEDBACK_HEADER_VERSION) {
+                    text_payload = payload + 4U;
+                    text_payload_size = payload_size - 4U;
+                }
+                printf(
+                    "LLM feedback: %.*s\n",
+                    (int) text_payload_size,
+                    (const char *) text_payload
+                );
                 fflush(stdout);
             }
 

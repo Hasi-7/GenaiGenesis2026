@@ -27,6 +27,7 @@ class ReasoningEngine(Protocol):
         """
         ...
 
+
 load_dotenv()
 
 _DEFAULT_COOLDOWN_SECONDS = 30.0
@@ -35,7 +36,8 @@ _MODEL = "gpt-4.1-nano"
 _SYSTEM_PROMPT = """\
 You are a concise cognitive wellness advisor. The user is being \
 monitored by sensors that detect their cognitive state in real time. \
-You receive state transition data and must provide brief, actionable \
+You receive either a state transition or a sustained bad-state alert and \
+must provide brief, actionable \
 feedback.
 
 Respond in exactly this format:
@@ -82,9 +84,7 @@ class LLMEngine:
     def rate_limiter(self) -> RateLimiter:
         return self._rate_limiter
 
-    def request_feedback(
-        self, request: LLMRequest
-    ) -> LLMResponse | None:
+    def request_feedback(self, request: LLMRequest) -> LLMResponse | None:
         """Call OpenAI for feedback, or None if rate limited."""
         if self._client is None:
             logger.debug("Skipping LLM feedback because no OpenAI client is configured")
@@ -113,21 +113,45 @@ class LLMEngine:
         return LLMResponse(
             feedback_text=feedback,
             timestamp=time.time(),
+            trigger_kind=request.trigger_kind,
+            should_notify=request.trigger_kind == "sustained_alert",
+            severity=_severity_for_state(request.current_state.label),
         )
 
 
 def _build_user_message(request: LLMRequest) -> str:
     cur = request.current_state
-    prev = request.transition.previous_state
     signals = ", ".join(
-        f"{s.label} ({s.confidence:.0%})"
-        for s in cur.contributing_signals[:5]
+        f"{s.label} ({s.confidence:.0%})" for s in cur.contributing_signals[:5]
     )
+    if request.sustained_alert is not None:
+        alert = request.sustained_alert
+        return (
+            f"Sustained alert: {alert.label.value}\n"
+            f"Sustained duration: {alert.duration_seconds:.0f}s\n"
+            f"Current confidence: {cur.confidence:.0%}\n"
+            f"Alert repeat count: {alert.repeat_count}\n"
+            f"Signals: {signals or 'none'}\n"
+            "Use softer wording when the label is distracted, and firmer wording "
+            "for stressed or fatigued."
+        )
+
+    transition = request.transition
+    assert transition is not None
+    prev = transition.previous_state
     return (
         f"State changed: {prev.label.value} -> {cur.label.value}\n"
         f"New confidence: {cur.confidence:.0%}\n"
         f"Signals: {signals or 'none'}"
     )
+
+
+def _severity_for_state(label: CognitiveStateLabel) -> str:
+    if label is CognitiveStateLabel.STRESSED:
+        return "urgent"
+    if label is CognitiveStateLabel.FATIGUED:
+        return "warning"
+    return "soft"
 
 
 if __name__ == "__main__":
@@ -148,9 +172,7 @@ if __name__ == "__main__":
             confidence=0.8,
             contributing_signals=[
                 ClassifierResult(label="tense", confidence=0.9),
-                ClassifierResult(
-                    label="stressed", confidence=0.85
-                ),
+                ClassifierResult(label="stressed", confidence=0.85),
             ],
             timestamp=now,
         )
@@ -175,9 +197,7 @@ if __name__ == "__main__":
 
     client = OpenAI()
     limiter = RateLimiter(cooldown_seconds=0.0)
-    engine = LLMEngine(
-        client=client, rate_limiter=limiter
-    )
+    engine = LLMEngine(client=client, rate_limiter=limiter)
 
     # Test 1: Get feedback for a state transition
     print("--- OpenAI call test ---")
@@ -195,15 +215,11 @@ if __name__ == "__main__":
     limiter2 = RateLimiter(cooldown_seconds=30.0)
     engine2 = LLMEngine(client=client, rate_limiter=limiter2)
 
-    resp1 = engine2.request_feedback(
-        _make_request(CognitiveStateLabel.FATIGUED)
-    )
+    resp1 = engine2.request_feedback(_make_request(CognitiveStateLabel.FATIGUED))
     assert resp1 is not None, "First call should succeed"
     print(f"Call 1: {resp1.feedback_text}")
 
-    resp2 = engine2.request_feedback(
-        _make_request(CognitiveStateLabel.DISTRACTED)
-    )
+    resp2 = engine2.request_feedback(_make_request(CognitiveStateLabel.DISTRACTED))
     assert resp2 is None, "Second call should be rate limited"
     print("Call 2: None (rate limited) ✓")
 

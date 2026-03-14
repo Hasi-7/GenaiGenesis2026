@@ -100,8 +100,10 @@ class LLMRequest:
 
     frame_jpeg_bytes: bytes
     current_state: CognitiveState
-    transition: StateTransition
+    transition: StateTransition | None
     recent_analyses: list[FrameAnalysis]
+    sustained_alert: SustainedStateAlert | None = None
+    trigger_kind: str = "transition"
 
 
 @dataclass(slots=True)
@@ -110,6 +112,22 @@ class LLMResponse:
 
     feedback_text: str
     timestamp: float
+    trigger_kind: str = "transition"
+    should_notify: bool = False
+    severity: str = "soft"
+
+
+@dataclass(slots=True)
+class SustainedStateAlert:
+    """Notification-worthy sustained cognitive state episode."""
+
+    label: CognitiveStateLabel
+    confidence: float
+    started_at: float
+    triggered_at: float
+    duration_seconds: float
+    sample_count: int
+    repeat_count: int = 0
 
 
 @dataclass(slots=True)
@@ -152,6 +170,20 @@ class PipelineConfig:
     state_change_threshold: float = 0.3
     ear_blink_threshold: float = 0.21
     blink_consec_frames: int = 3
+    sustained_alerts_enabled: bool = True
+    sustained_alert_window_seconds: float = 5.0
+    sustained_alert_min_duration_seconds: float = 5.0
+    sustained_alert_required_ratio: float = 0.7
+    sustained_alert_enter_confidence: float = 0.0
+    sustained_alert_exit_confidence: float = 0.0
+    sustained_alert_recovery_seconds: float = 5.0
+    sustained_alert_repeat_cooldown_seconds: float = 120.0
+    sustained_alert_max_notifications_per_episode: int = 3
+    sustained_alert_bad_labels: tuple[str, ...] = (
+        "fatigued",
+        "stressed",
+        "distracted",
+    )
 
     @staticmethod
     def desktop() -> PipelineConfig:
