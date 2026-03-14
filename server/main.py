@@ -38,7 +38,22 @@ def main() -> None:
 
     tracker_type = os.environ.get("STATE_TRACKER_TYPE", config.state_tracker_type)
     api_key = os.environ.get("OPENAI_API_KEY")
-    client = OpenAI(api_key=api_key) if api_key else None
+    client: OpenAI | None = OpenAI(api_key=api_key) if api_key else None
+
+    logger.info(
+        "Starting CognitiveSense in %s mode (fps=%d, tracker=%s)",
+        config.environment.value,
+        config.target_fps,
+        tracker_type,
+    )
+    if env == "mirror":
+        logger.info(
+            "Mirror receiver configured for %s:%d",
+            config.mirror_listen_host,
+            config.mirror_listen_port,
+        )
+    else:
+        logger.info("Using local camera index %d", config.camera_index)
 
     if client is None:
         logger.info("OPENAI_API_KEY not set; LLM feedback is disabled")
@@ -64,7 +79,7 @@ def main() -> None:
     screenshot_manager = ScreenshotManager(camera)
 
     state_tracker: StateTracker | LLMStateTracker
-    if tracker_type == "llm":
+    if tracker_type == "llm" and client is not None:
         state_tracker = LLMStateTracker(
             client=client,
             screenshot_manager=screenshot_manager,
@@ -81,6 +96,7 @@ def main() -> None:
         screenshot_manager=screenshot_manager,
         state_tracker=state_tracker,
     )
+    logger.info("Server startup complete; entering pipeline loop")
     controller.run()
 
 
