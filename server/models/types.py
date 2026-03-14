@@ -60,7 +60,9 @@ class FrameAnalysis:
 
     timestamp: float
     blink: BlinkData | None = None
+    blink_label: ClassifierResult | None = None
     gaze: GazeData | None = None
+    gaze_label: ClassifierResult | None = None
     expression: ClassifierResult | None = None
     posture: ClassifierResult | None = None
     speech_tone: ClassifierResult | None = None

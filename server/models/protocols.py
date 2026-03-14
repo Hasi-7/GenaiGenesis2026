@@ -7,6 +7,7 @@ from numpy.typing import NDArray
 
 from models.types import (
     CognitiveState,
+    FrameAnalysis,
     LLMResponse,
 )
 
@@ -69,6 +70,7 @@ class DesktopRenderer(Protocol):
         frame: NDArray[np.uint8],
         state: CognitiveState,
         llm_response: LLMResponse | None = ...,
+        analysis: FrameAnalysis | None = ...,
     ) -> None:
         """Overlay cognitive state info on frame and display via cv2.imshow."""
         ...
@@ -89,6 +91,7 @@ class MirrorRenderer(Protocol):
         self,
         state: CognitiveState,
         llm_response: LLMResponse | None = ...,
+        analysis: FrameAnalysis | None = ...,
     ) -> None:
         """Print state to terminal, throttled to 1 update/second."""
         ...

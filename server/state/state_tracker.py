@@ -441,7 +441,9 @@ def _collect_signals(
     """Extract all non-None classifier results from frames."""
     signals: list[ClassifierResult] = []
     for f in frames:
-        if f.blink is not None:
+        if f.blink_label is not None:
+            signals.append(f.blink_label)
+        elif f.blink is not None:
             if f.blink.blinks_per_minute > 25:
                 signals.append(
                     ClassifierResult(label="fatigued", confidence=0.7)
@@ -454,7 +456,9 @@ def _collect_signals(
                 signals.append(
                     ClassifierResult(label="normal", confidence=0.8)
                 )
-        if f.gaze is not None:
+        if f.gaze_label is not None:
+            signals.append(f.gaze_label)
+        elif f.gaze is not None:
             signals.append(
                 ClassifierResult(
                     label=f.gaze.direction, confidence=0.7

@@ -20,6 +20,7 @@ from models.types import (
 from reasoning.llm_engine import LLMEngine
 from state.state_tracker import StateTrackerProtocol
 from ui.desktop_ui import DesktopUI
+from ui.mirror_ui import MirrorUI
 from vision.blink_detector import EarBlinkDetector
 from vision.eye_movement_detector import IrisGazeDetector
 from vision.face_landmarks import FaceLandmarkerTask
@@ -95,11 +96,12 @@ class PipelineController:
         self._last_waiting_log_time = 0.0
 
         # UI renderer
-        self._renderer: DesktopUI | None = (
-            DesktopUI()
-            if config.environment.value == "desktop" and config.renderer_enabled
-            else None
-        )
+        if not config.renderer_enabled:
+            self._renderer: DesktopUI | MirrorUI | None = None
+        elif config.environment.value == "desktop":
+            self._renderer = DesktopUI()
+        else:
+            self._renderer = MirrorUI()
 
     def subscribe(self, callback: Callable[[LLMResponse], None]) -> None:
         """Register a callback invoked on each LLM response."""
@@ -170,8 +172,11 @@ class PipelineController:
             # 3. Blink
             blink_data = self._blink_detector.detect(landmarks)
             analysis.blink = blink_data
+            analysis.blink_label = self._blink_detector.classify(blink_data)
             logger.info(
-                "_tick: blink ear=%.3f bpm=%.1f",
+                "_tick: blink=%s conf=%.2f ear=%.3f bpm=%.1f",
+                analysis.blink_label.label,
+                analysis.blink_label.confidence,
                 blink_data.ear_average,
                 blink_data.blinks_per_minute,
             )
@@ -179,8 +184,11 @@ class PipelineController:
             # 4. Gaze
             gaze_data = self._gaze_detector.detect(landmarks)
             analysis.gaze = gaze_data
+            analysis.gaze_label = self._gaze_detector.classify(gaze_data)
             logger.info(
-                "_tick: gaze direction=%s h=%.2f v=%.2f",
+                "_tick: gaze=%s conf=%.2f direction=%s h=%.2f v=%.2f",
+                analysis.gaze_label.label,
+                analysis.gaze_label.confidence,
                 gaze_data.direction,
                 gaze_data.horizontal_ratio,
                 gaze_data.vertical_ratio,
@@ -281,9 +289,15 @@ class PipelineController:
                     self._telemetry_sink.publish_feedback(response, current_state)
 
         # 10. Render UI
-        if self._renderer is not None:
+        if isinstance(self._renderer, DesktopUI):
             self._renderer.render(
                 bgr_frame,
+                current_state,
+                self._last_response,
+                analysis,
+            )
+        elif self._renderer is not None:
+            self._renderer.render(
                 current_state,
                 self._last_response,
                 analysis,

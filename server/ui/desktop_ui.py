@@ -243,6 +243,9 @@ class DesktopUI:
             else:
                 _put(frame, f"{blink.blinks_per_minute:.1f} bpm", x, y, _WHITE, 0.48)
             y += step
+            if analysis.blink_label:
+                _pill(frame, analysis.blink_label.label, analysis.blink_label.confidence, x, y)
+                y += step + 4
         else:
             _put(frame, "no face", x, y, _ORANGE, 0.42)
             y += step * 2
@@ -260,6 +263,9 @@ class DesktopUI:
             y += step
             _put(frame, f"dir: {gaze.direction}", x, y, _label_color("center" if gaze.direction == "center" else "distracted"), 0.44)
             y += step
+            if analysis.gaze_label:
+                _pill(frame, analysis.gaze_label.label, analysis.gaze_label.confidence, x, y)
+                y += step + 4
         else:
             _put(frame, "no face", x, y, _ORANGE, 0.42)
             y += step * 2
