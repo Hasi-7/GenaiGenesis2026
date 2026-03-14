@@ -100,8 +100,6 @@ class LLMResponse:
     """Response from LLM reasoning engine."""
 
     feedback_text: str
-    suggestions: list[str]
-    estimated_cost_usd: float
     timestamp: float
 
 
