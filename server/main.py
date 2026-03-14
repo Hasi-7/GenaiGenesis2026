@@ -78,6 +78,13 @@ def main() -> None:
     else:
         config = PipelineConfig.desktop()
 
+    mirror_port = os.environ.get("COGNITIVESENSE_MIRROR_PORT")
+    server_port = os.environ.get("COGNITIVESENSE_SERVER_PORT")
+    if mirror_port is not None:
+        config.mirror_listen_port = int(mirror_port)
+    if server_port is not None:
+        config.remote_media_port = int(server_port)
+
     tracker_type = os.environ.get("STATE_TRACKER_TYPE", config.state_tracker_type)
     api_key = os.environ.get("OPENAI_API_KEY")
     client: OpenAI | None = OpenAI(api_key=api_key) if api_key else None
@@ -95,6 +102,12 @@ def main() -> None:
             config.mirror_listen_port,
         )
         _log_wsl_mirror_networking_help(config.mirror_listen_port)
+    elif config.remote_media_enabled:
+        logger.info(
+            "Remote media bridge configured for %s:%d",
+            config.remote_media_host,
+            config.remote_media_port,
+        )
     else:
         logger.info("Using local camera index %d", config.camera_index)
 
