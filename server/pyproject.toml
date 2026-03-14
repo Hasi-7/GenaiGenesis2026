@@ -5,7 +5,7 @@ description = "CognitiveSense - AI cognitive fatigue/stress detection"
 readme = "README.md"
 requires-python = ">=3.11,<3.12"
 dependencies = [
-    "mediapipe>=0.10.32",
+    "mediapipe==0.10.14",
     "numpy>=2.4.3",
     "opencv-python>=4.13.0.92",
     "sounddevice>=0.5.5",
