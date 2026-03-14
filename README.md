@@ -62,6 +62,16 @@ Run the server in mirror mode on the receiving machine:
 uv run cognitivesense mirror
 ```
 
+If you run the Python server inside WSL2, Raspberry Pi devices on your LAN usually
+cannot connect to it directly through the Windows Wi-Fi IP until Windows forwards
+the port into WSL. Run this once from an elevated Windows PowerShell:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\scripts\setup_wsl_mirror_proxy.ps1 -Port 9000
+```
+
+Then point the Raspberry Pi sender at the Windows LAN IP that the script prints.
+
 Build the mirror streamer on the Raspberry Pi:
 
 ```bash

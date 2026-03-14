@@ -30,6 +30,37 @@ from state.state_tracker import LLMStateTracker, StateTracker
 logger = logging.getLogger(__name__)
 
 
+def _running_in_wsl() -> bool:
+    if "WSL_DISTRO_NAME" in os.environ:
+        return True
+
+    try:
+        with open("/proc/version", encoding="utf-8") as version_file:
+            version = version_file.read()
+    except OSError:
+        return False
+
+    return "microsoft" in version.lower()
+
+
+def _log_wsl_mirror_networking_help(port: int) -> None:
+    if not _running_in_wsl():
+        return
+
+    logger.warning(
+        "Mirror mode is running inside WSL2. Raspberry Pi devices usually cannot "
+        "reach the Python receiver directly through the Windows Wi-Fi IP unless "
+        "Windows forwards TCP %d into WSL.",
+        port,
+    )
+    logger.warning(
+        "Run an elevated Windows PowerShell and execute "
+        "scripts/setup_wsl_mirror_proxy.ps1 -Port %d, or run the mirror server "
+        "from native Windows Python instead of WSL.",
+        port,
+    )
+
+
 def main() -> None:
     setup_logging()
 
@@ -52,6 +83,7 @@ def main() -> None:
             config.mirror_listen_host,
             config.mirror_listen_port,
         )
+        _log_wsl_mirror_networking_help(config.mirror_listen_port)
     else:
         logger.info("Using local camera index %d", config.camera_index)
 
