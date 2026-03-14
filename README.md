@@ -46,9 +46,13 @@ Run it directly against the Pi camera:
 ./mirror/build/mirror_capture_smoke
 ./mirror/build/mirror_capture_smoke 1280 720 8000
 ./mirror/build/mirror_capture_smoke 1280 720 8000 /home/pi/frame.bmp
+./mirror/build/mirror_capture_smoke stream 192.168.1.10
+./mirror/build/mirror_capture_smoke stream 192.168.1.10 9000 640 480 15
 ```
 
-Arguments are `width height timeout_ms [output_path]`. The smoke test prints one captured frame, saves a BMP to `captured_frame.bmp` by default, and exits with `0` on success.
+Capture arguments are `width height timeout_ms [output_path]`. The smoke test prints one captured frame, saves a BMP to `captured_frame.bmp` by default, and exits with `0` on success.
+
+Streaming arguments are `stream <server_ip> [port] [width] [height] [fps]`. This launches the continuous 15 FPS network stream test through the built `mirror_frame_streamer` binary.
 
 ## Mirror Streaming
 
@@ -57,6 +61,16 @@ Run the server in mirror mode on the receiving machine:
 ```bash
 uv run cognitivesense mirror
 ```
+
+If you run the Python server inside WSL2, Raspberry Pi devices on your LAN usually
+cannot connect to it directly through the Windows Wi-Fi IP until Windows forwards
+the port into WSL. Run this once from an elevated Windows PowerShell:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\scripts\setup_wsl_mirror_proxy.ps1 -Port 9000
+```
+
+Then point the Raspberry Pi sender at the Windows LAN IP that the script prints.
 
 Build the mirror streamer on the Raspberry Pi:
 

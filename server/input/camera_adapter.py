@@ -6,21 +6,22 @@ import struct
 import threading
 from collections.abc import Callable
 
-import cv2  # type: ignore[import-untyped]
 import numpy as np
+from config.third_party import OpenCVVideoCaptureProtocol, load_cv2
 from numpy.typing import NDArray
 
 logger = logging.getLogger(__name__)
 
 _FRAME_HEADER = struct.Struct("!4sIIIQ")
 _FRAME_MAGIC = b"CSJ1"
+cv2 = load_cv2()
 
 
 class LocalCameraAdapter:
     """Local webcam adapter implementing CameraSource protocol."""
 
     def __init__(self, camera_index: int = 0) -> None:
-        self._capture: cv2.VideoCapture = cv2.VideoCapture(camera_index)
+        self._capture: OpenCVVideoCaptureProtocol = cv2.VideoCapture(camera_index)
         self._subscribers: list[Callable[[NDArray[np.uint8]], None]] = []
 
     def read_frame(self) -> NDArray[np.uint8] | None:
@@ -77,6 +78,7 @@ class NetworkCameraAdapter:
         self._last_read_sequence = -1
         self._frame_width = 0
         self._frame_height = 0
+        self._logged_first_frame = False
 
         try:
             server_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
@@ -164,6 +166,7 @@ class NetworkCameraAdapter:
                 address[0],
                 address[1],
             )
+            self._logged_first_frame = False
             self._client_socket = client_socket
             client_socket.settimeout(1.0)
             try:
@@ -212,6 +215,14 @@ class NetworkCameraAdapter:
                 self._latest_sequence += 1
                 self._frame_width = width if width > 0 else int(frame_array.shape[1])
                 self._frame_height = height if height > 0 else int(frame_array.shape[0])
+            if not self._logged_first_frame:
+                logger.info(
+                    "Received first mirror frame: %dx%d (%d bytes JPEG)",
+                    self._frame_width,
+                    self._frame_height,
+                    payload_size,
+                )
+                self._logged_first_frame = True
 
     def _recv_exact(
         self,

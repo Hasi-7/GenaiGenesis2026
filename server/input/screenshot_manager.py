@@ -1,10 +1,11 @@
 from __future__ import annotations
 
-import cv2  # type: ignore[import-untyped]
 import numpy as np
+from config.third_party import load_cv2
 from numpy.typing import NDArray
 
 from models.protocols import CameraSource
+cv2 = load_cv2()
 
 
 class ScreenshotManager:

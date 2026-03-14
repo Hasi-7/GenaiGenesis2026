@@ -82,13 +82,17 @@ class PipelineController:
         self._posture_detector = MediaPipePostureDetector()
 
         # Audio
-        self._speech_classifier = SpeechToneClassifier()
+        self._speech_classifier: SpeechToneClassifier | None = None
+        if config.mic_enabled:
+            self._speech_classifier = SpeechToneClassifier()
 
         # Subscribers
         self._subscribers: list[Callable[[LLMResponse], None]] = []
 
         # Latest LLM response for UI
         self._last_response: LLMResponse | None = None
+        self._waiting_for_frames_since: float | None = None
+        self._last_waiting_log_time = 0.0
 
         # UI renderer
         self._renderer: DesktopUI | None = (
@@ -111,6 +115,11 @@ class PipelineController:
             self._mic.start()
 
         frame_interval = 1.0 / self._config.target_fps
+        logger.info(
+            "Pipeline running at %d FPS in %s mode",
+            self._config.target_fps,
+            self._config.environment.value,
+        )
 
         try:
             while True:
@@ -133,7 +142,9 @@ class PipelineController:
         self._screenshot_manager.tick()
         bgr_frame = self._screenshot_manager.bgr_frame
         if bgr_frame is None:
+            self._log_waiting_for_frames()
             return
+        self._log_frame_stream_resumed()
 
         logger.debug(
             "_tick: read_frame %dx%d",
@@ -213,7 +224,7 @@ class PipelineController:
                 "_tick: mic.get_latest_chunk -> %s",
                 f"{chunk.shape[0]} samples" if chunk is not None else "none",
             )
-            if chunk is not None:
+            if chunk is not None and self._speech_classifier is not None:
                 analysis.speech_tone = self._speech_classifier.classify(chunk)
                 logger.info(
                     "_tick: speech_tone=%s conf=%.2f",
@@ -293,6 +304,38 @@ class PipelineController:
         self._posture_detector.close()
         if self._renderer is not None:
             self._renderer.destroy()
+
+    def _log_waiting_for_frames(self) -> None:
+        now = time.monotonic()
+        if self._waiting_for_frames_since is None:
+            self._waiting_for_frames_since = now
+
+        if now - self._last_waiting_log_time < 5.0:
+            return
+
+        waited = now - self._waiting_for_frames_since
+        if self._config.environment.value == "mirror":
+            logger.info(
+                "Waiting for mirror frames on %s:%d (%.1fs elapsed)",
+                self._config.mirror_listen_host,
+                self._config.mirror_listen_port,
+                waited,
+            )
+        else:
+            logger.info(
+                "Waiting for local camera frames (%.1fs elapsed)",
+                waited,
+            )
+        self._last_waiting_log_time = now
+
+    def _log_frame_stream_resumed(self) -> None:
+        if self._waiting_for_frames_since is None:
+            return
+
+        waited = time.monotonic() - self._waiting_for_frames_since
+        logger.info("Frame stream became available after %.1fs", waited)
+        self._waiting_for_frames_since = None
+        self._last_waiting_log_time = 0.0
 
 
 if __name__ == "__main__":

@@ -1,19 +1,14 @@
 from __future__ import annotations
 
+import importlib
 import threading
 import time
 from collections.abc import Callable
 from dataclasses import replace
-from typing import Protocol
+from typing import Protocol, runtime_checkable
 
 from .ring_buffer import LatestValueBuffer
 from .types import CaptureStatus, ClientType, VideoFrame
-
-try:
-    import cv2  # type: ignore[import-untyped]
-except ImportError:  # pragma: no cover - exercised only when OpenCV is missing.
-    cv2 = None
-
 
 class _UnchangedType:
     pass
@@ -27,6 +22,25 @@ class CameraFrame(Protocol):
     height: int
 
     def tobytes(self) -> bytes: ...
+
+
+class _OpenCVFrame(Protocol):
+    shape: tuple[int, ...]
+
+    def tobytes(self) -> bytes: ...
+
+
+class _OpenCVCapture(Protocol):
+    def isOpened(self) -> bool: ...
+
+    def read(self) -> tuple[bool, _OpenCVFrame | None]: ...
+
+    def release(self) -> None: ...
+
+
+@runtime_checkable
+class _OpenCVModule(Protocol):
+    def VideoCapture(self, camera_index: int) -> _OpenCVCapture: ...
 
 
 class CameraDevice(Protocol):
@@ -58,7 +72,7 @@ class _OpenCVCameraDevice:
 
     def read(self) -> tuple[bool, CameraFrame | None]:
         ok, frame = self._capture.read()
-        if not ok:
+        if not ok or frame is None:
             return False, None
         return True, _BufferedCameraFrame(
             width=int(frame.shape[1]),
@@ -68,6 +82,19 @@ class _OpenCVCameraDevice:
 
     def release(self) -> None:
         self._capture.release()
+
+
+def _try_load_cv2() -> _OpenCVModule | None:
+    try:
+        module = importlib.import_module("cv2")
+    except (ImportError, OSError):  # pragma: no cover - native dependency missing.
+        return None
+    if not isinstance(module, _OpenCVModule):  # pragma: no cover - defensive.
+        return None
+    return module
+
+
+cv2 = _try_load_cv2()
 
 
 class CameraCapture:

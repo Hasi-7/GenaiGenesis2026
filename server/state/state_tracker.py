@@ -389,8 +389,9 @@ class LLMStateTracker:
         blink_frames = [f for f in recent if f.blink is not None]
         if blink_frames:
             avg_bpm = sum(
-                f.blink.blinks_per_minute  # type: ignore[union-attr]
-                for f in blink_frames
+                frame.blink.blinks_per_minute
+                for frame in blink_frames
+                if frame.blink is not None
             ) / len(blink_frames)
             lines.append(f"Avg blink rate: {avg_bpm:.1f} bpm")
 

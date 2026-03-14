@@ -1,19 +1,25 @@
 from __future__ import annotations
 
+import importlib
 import logging
 import os
-from typing import Protocol
+from collections.abc import Sequence
+from typing import Protocol, runtime_checkable
 
 import numpy as np
+from config.third_party import (
+    AudioClassificationPipelineProtocol,
+    load_transformers_pipeline,
+)
 from models.types import ClassifierResult
 from numpy.typing import NDArray
 
 logger = logging.getLogger(__name__)
 
 try:
-    from transformers import pipeline  # type: ignore[import-untyped]
+    _transformers_pipeline_factory = load_transformers_pipeline()
 except Exception:  # pragma: no cover - optional dependency failure.
-    pipeline = None
+    _transformers_pipeline_factory = None
 
 
 class SpeechToneClassifierProtocol(Protocol):
@@ -47,6 +53,27 @@ _SILENCE_RMS_THRESHOLD = 0.001
 _DEFAULT_BACKEND = "heuristic"
 
 
+@runtime_checkable
+class _SoundDeviceModuleProtocol(Protocol):
+    def rec(
+        self,
+        frames: int,
+        *,
+        samplerate: int,
+        channels: int,
+        dtype: str,
+    ) -> NDArray[np.float32]: ...
+
+    def wait(self) -> None: ...
+
+
+def _load_sounddevice() -> _SoundDeviceModuleProtocol:
+    module = importlib.import_module("sounddevice")
+    if not isinstance(module, _SoundDeviceModuleProtocol):
+        raise TypeError("sounddevice module does not match expected protocol")
+    return module
+
+
 class SpeechToneClassifier:
     """Speech tone classifier with cheap heuristic default."""
 
@@ -59,7 +86,7 @@ class SpeechToneClassifier:
             .strip()
             .lower()
         )
-        self._pipe = None
+        self._pipe: AudioClassificationPipelineProtocol | None = None
         self._pipe_failed = False
 
         if self._backend not in {"heuristic", "transformer"}:
@@ -106,7 +133,7 @@ class SpeechToneClassifier:
             model_audio = _resample(audio_chunk, sample_rate, _MODEL_SAMPLE_RATE)
 
         try:
-            results: list[dict[str, object]] = pipe(
+            results: Sequence[dict[str, object]] = pipe(
                 {"raw": model_audio, "sampling_rate": _MODEL_SAMPLE_RATE},
                 top_k=len(_EMOTION_TO_TONE),
             )
@@ -143,7 +170,7 @@ class SpeechToneClassifier:
             return None
         if self._pipe is not None:
             return self._pipe
-        if pipeline is None:
+        if _transformers_pipeline_factory is None:
             logger.warning(
                 "transformers is unavailable; falling back to heuristic speech tone"
             )
@@ -155,7 +182,7 @@ class SpeechToneClassifier:
                 "Loading transformer speech tone backend; this may download "
                 "model weights"
             )
-            self._pipe = pipeline(
+            self._pipe = _transformers_pipeline_factory(
                 "audio-classification",
                 model="Hatman/audio-emotion-detection",
             )
@@ -235,4 +262,36 @@ def _resample(
     duration = len(audio) / orig_sr
     target_length = max(1, int(duration * target_sr))
     indices = np.linspace(0, len(audio) - 1, target_length)
-    return np.interp(indices, np.arange(len(audio)), audio).astype(np.float32)
+    resampled: NDArray[np.float32] = np.interp(
+        indices,
+        np.arange(len(audio)),
+        audio,
+    ).astype(np.float32)
+    return resampled
+
+
+if __name__ == "__main__":
+    SAMPLE_RATE = 16_000
+    DURATION_SECONDS = 3
+
+    sd = _load_sounddevice()
+
+    print(f"Recording {DURATION_SECONDS}s of audio at {SAMPLE_RATE} Hz...")
+    audio_data = np.asarray(
+        sd.rec(
+            int(DURATION_SECONDS * SAMPLE_RATE),
+            samplerate=SAMPLE_RATE,
+            channels=1,
+            dtype="float32",
+        ),
+        dtype=np.float32,
+    )
+    sd.wait()
+    audio_data = _to_mono(audio_data)
+    print(f"Recorded {len(audio_data)} samples.")
+
+    print("Loading model (first run downloads ~1.2 GB)...")
+    classifier = SpeechToneClassifier()
+
+    result = classifier.classify(audio_data, SAMPLE_RATE)
+    print(f"Label: {result.label}, Confidence: {result.confidence:.3f}")

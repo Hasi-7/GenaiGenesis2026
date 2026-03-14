@@ -1,19 +1,14 @@
 from __future__ import annotations
 
+import importlib
 import threading
 import time
 from collections.abc import Callable
 from dataclasses import replace
-from typing import Protocol
+from typing import Protocol, runtime_checkable
 
 from .ring_buffer import LatestValueBuffer
 from .types import AudioChunk, CaptureStatus, ClientType
-
-try:
-    import sounddevice as sd  # type: ignore[import-untyped]
-except ImportError:  # pragma: no cover - exercised only when sounddevice is missing.
-    sd = None
-
 
 class _UnchangedType:
     pass
@@ -54,6 +49,24 @@ class AudioStreamFactory(Protocol):
         dtype: str,
         callback: AudioStreamCallback,
     ) -> AudioStream: ...
+
+
+@runtime_checkable
+class _SoundDeviceModule(Protocol):
+    InputStream: AudioStreamFactory
+
+
+def _try_load_sounddevice() -> _SoundDeviceModule | None:
+    try:
+        module = importlib.import_module("sounddevice")
+    except (ImportError, OSError):  # pragma: no cover - native dependency missing.
+        return None
+    if not isinstance(module, _SoundDeviceModule):  # pragma: no cover - defensive.
+        return None
+    return module
+
+
+sd = _try_load_sounddevice()
 
 
 class MicCapture:

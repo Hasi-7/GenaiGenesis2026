@@ -5,6 +5,7 @@ import os
 
 LOG_DIR = os.path.join(os.path.dirname(__file__), "..", "logs")
 PROJECT_PACKAGE = "server"
+_DEFAULT_CONSOLE_LEVEL = "INFO"
 
 
 class _InfoFilter(logging.Filter):
@@ -12,6 +13,13 @@ class _InfoFilter(logging.Filter):
 
     def filter(self, record: logging.LogRecord) -> bool:
         return record.levelno == logging.INFO
+
+
+def _parse_log_level(level_name: str) -> int:
+    level = getattr(logging, level_name.upper(), None)
+    if isinstance(level, int):
+        return level
+    return logging.INFO
 
 
 def setup_logging() -> None:
@@ -24,6 +32,11 @@ def setup_logging() -> None:
     - console: project logs only, INFO and above
     """
     os.makedirs(LOG_DIR, exist_ok=True)
+    console_level_name = os.environ.get(
+        "COGNITIVESENSE_LOG_LEVEL",
+        _DEFAULT_CONSOLE_LEVEL,
+    )
+    console_level = _parse_log_level(console_level_name)
 
     fmt = "%(asctime)s %(name)s %(levelname)s %(message)s"
     formatter = logging.Formatter(fmt)
@@ -63,7 +76,7 @@ def setup_logging() -> None:
 
     # --- Console handler: project logs only (INFO+) ---
     console_handler = logging.StreamHandler()
-    console_handler.setLevel(logging.INFO)
+    console_handler.setLevel(console_level)
     console_handler.setFormatter(formatter)
 
     # Root logger gets the all-logs handler
@@ -85,6 +98,8 @@ def setup_logging() -> None:
         "ui",
         "models",
         "config",
+        "main",
+        "server",
         "__main__",
     ]
     for pkg in project_packages:
@@ -93,3 +108,8 @@ def setup_logging() -> None:
         pkg_logger.addHandler(project_file_handler)
         pkg_logger.addHandler(info_handler)
         pkg_logger.addHandler(console_handler)
+
+    logging.getLogger(__name__).info(
+        "Console log level set to %s",
+        logging.getLevelName(console_level),
+    )

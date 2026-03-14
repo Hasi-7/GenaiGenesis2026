@@ -14,15 +14,18 @@ from __future__ import annotations
 
 import time
 
-import cv2  # type: ignore[import-untyped]
 import numpy as np
+from config.third_party import load_cv2
+from numpy.typing import NDArray
 
-from vision.face_landmarks import FaceLandmarkerTask
 from vision.blink_detector import EarBlinkDetector
 from vision.eye_movement_detector import IrisGazeDetector
 from vision.facial_expression_classifier import BlendshapeExpressionClassifier
+from vision.face_landmarks import FaceLandmarkerTask
 from vision.posture_detector import MediaPipePostureDetector
-from models.types import BlinkData, GazeData, PostureData, ClassifierResult
+from models.types import BlinkData, ClassifierResult, GazeData, PostureData
+
+cv2 = load_cv2()
 
 
 # -----------------------------------------------------------------------
@@ -54,7 +57,7 @@ def _label_color(label: str) -> tuple[int, int, int]:
 
 
 def _put(
-    frame: np.ndarray,
+    frame: NDArray[np.uint8],
     text: str,
     x: int,
     y: int,
@@ -67,7 +70,7 @@ def _put(
 
 
 def _pill(
-    frame: np.ndarray,
+    frame: NDArray[np.uint8],
     label: str,
     conf: float,
     x: int,
@@ -89,7 +92,13 @@ def _pill(
     cv2.putText(frame, text, (x + pad_x, y), cv2.FONT_HERSHEY_SIMPLEX, scale, (255, 255, 255), thickness, cv2.LINE_AA)
 
 
-def _ear_bar(frame: np.ndarray, ear: float, x: int, y: int, label: str) -> None:
+def _ear_bar(
+    frame: NDArray[np.uint8],
+    ear: float,
+    x: int,
+    y: int,
+    label: str,
+) -> None:
     """Draw a small horizontal bar showing EAR value (0.0–0.4 range)."""
     bar_w, bar_h = 80, 8
     ratio = min(1.0, ear / 0.4)
@@ -102,7 +111,7 @@ def _ear_bar(frame: np.ndarray, ear: float, x: int, y: int, label: str) -> None:
 
 
 def _overlay_panel(
-    frame: np.ndarray,
+    frame: NDArray[np.uint8],
     blink: BlinkData | None,
     blink_cls: ClassifierResult | None,
     gaze: GazeData | None,
@@ -130,8 +139,6 @@ def _overlay_panel(
     fps_text = f"FPS {fps:.1f}"
     (tw, _), _ = cv2.getTextSize(fps_text, cv2.FONT_HERSHEY_SIMPLEX, 0.45, 1)
     _put(frame, fps_text, w - tw - 10, 20, _GREY, 0.45)
-
-    no_face = blink is None
 
     # ── SECTION: BLINK ─────────────────────────────────────────────────
     _put(frame, "BLINK", x, y, _GREY, 0.42)
@@ -169,8 +176,6 @@ def _overlay_panel(
     y += step
 
     if gaze:
-        h_color = _label_color("center") if abs(gaze.horizontal_ratio) < 0.2 else _ORANGE
-        v_color = _label_color("center") if abs(gaze.vertical_ratio) < 0.2 else _ORANGE
         _put(frame, f"H {gaze.horizontal_ratio:+.2f}  V {gaze.vertical_ratio:+.2f}", x, y, _WHITE, 0.44)
         y += step
         _put(frame, f"direction: {gaze.direction}", x, y, _WHITE, 0.44)
@@ -240,7 +245,7 @@ def run() -> None:
     try:
         while True:
             ret, bgr = cap.read()
-            if not ret:
+            if not ret or bgr is None:
                 break
 
             frame_count += 1

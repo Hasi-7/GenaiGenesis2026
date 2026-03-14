@@ -25,15 +25,18 @@ from __future__ import annotations
 import math
 from typing import Protocol
 
-import mediapipe as mp  # type: ignore[import-untyped]
 import numpy as np
+from config.third_party import PoseProtocol, load_mediapipe
 from models.types import ClassifierResult, PostureData
+from numpy.typing import NDArray
+
+mp = load_mediapipe()
 
 
 class PostureDetectorProtocol(Protocol):
     """Protocol for posture detection via MediaPipe Pose."""
 
-    def detect(self, frame_rgb: np.ndarray) -> PostureData | None:
+    def detect(self, frame_rgb: NDArray[np.uint8]) -> PostureData | None:
         """
         Detect pose and compute posture metrics.
 
@@ -61,8 +64,6 @@ _LEFT_SHOULDER = 11
 _RIGHT_SHOULDER = 12
 _LEFT_EAR = 7
 _RIGHT_EAR = 8
-_NOSE = 0
-
 # Thresholds
 _SLOUCH_ANGLE_DEG = 8.0    # shoulder line deviation from horizontal
 _SLOUCH_RATIO_MIN = 0.55   # min ear-to-shoulder vertical ratio (below = slouching)
@@ -82,15 +83,6 @@ def _angle_from_horizontal(p1: np.ndarray, p2: np.ndarray) -> float:
         angle = 180.0 - angle
     return angle
 
-
-def _angle_from_vertical(p1: np.ndarray, p2: np.ndarray) -> float:
-    """Return the angle (degrees) between the p1→p2 vector and vertical."""
-    dx = p2[0] - p1[0]
-    dy = p2[1] - p1[1]
-    # Angle from vertical = 90 - angle from horizontal
-    return abs(90.0 - abs(math.degrees(math.atan2(dy, dx))))
-
-
 class MediaPipePostureDetector:
     """Estimates body posture from a full-body or upper-body RGB frame.
 
@@ -99,7 +91,7 @@ class MediaPipePostureDetector:
     """
 
     def __init__(self) -> None:
-        self._pose = mp.solutions.pose.Pose(  # type: ignore[attr-defined]
+        self._pose: PoseProtocol = mp.solutions.pose.Pose(
             static_image_mode=False,
             model_complexity=1,
             smooth_landmarks=True,
@@ -107,7 +99,7 @@ class MediaPipePostureDetector:
             min_tracking_confidence=0.5,
         )
 
-    def detect(self, frame_rgb: np.ndarray) -> PostureData | None:
+    def detect(self, frame_rgb: NDArray[np.uint8]) -> PostureData | None:
         """Extract posture metrics from an RGB frame.
 
         Args:
@@ -129,7 +121,6 @@ class MediaPipePostureDetector:
         right_shoulder = pt(_RIGHT_SHOULDER)
         left_ear = pt(_LEFT_EAR)
         right_ear = pt(_RIGHT_EAR)
-        nose = pt(_NOSE)
 
         shoulder_angle = _angle_from_horizontal(left_shoulder, right_shoulder)
         # Head tilt: angle of the ear-to-ear line from horizontal.

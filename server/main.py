@@ -31,6 +31,37 @@ from state.state_tracker import LLMStateTracker, StateTracker
 logger = logging.getLogger(__name__)
 
 
+def _running_in_wsl() -> bool:
+    if "WSL_DISTRO_NAME" in os.environ:
+        return True
+
+    try:
+        with open("/proc/version", encoding="utf-8") as version_file:
+            version = version_file.read()
+    except OSError:
+        return False
+
+    return "microsoft" in version.lower()
+
+
+def _log_wsl_mirror_networking_help(port: int) -> None:
+    if not _running_in_wsl():
+        return
+
+    logger.warning(
+        "Mirror mode is running inside WSL2. Raspberry Pi devices usually cannot "
+        "reach the Python receiver directly through the Windows Wi-Fi IP unless "
+        "Windows forwards TCP %d into WSL.",
+        port,
+    )
+    logger.warning(
+        "Run an elevated Windows PowerShell and execute "
+        "scripts/setup_wsl_mirror_proxy.ps1 -Port %d, or run the mirror server "
+        "from native Windows Python instead of WSL.",
+        port,
+    )
+
+
 def main() -> None:
     setup_logging()
 
@@ -46,7 +77,23 @@ def main() -> None:
 
     tracker_type = os.environ.get("STATE_TRACKER_TYPE", config.state_tracker_type)
     api_key = os.environ.get("OPENAI_API_KEY")
-    client = OpenAI(api_key=api_key) if api_key else None
+    client: OpenAI | None = OpenAI(api_key=api_key) if api_key else None
+
+    logger.info(
+        "Starting CognitiveSense in %s mode (fps=%d, tracker=%s)",
+        config.environment.value,
+        config.target_fps,
+        tracker_type,
+    )
+    if env == "mirror":
+        logger.info(
+            "Mirror receiver configured for %s:%d",
+            config.mirror_listen_host,
+            config.mirror_listen_port,
+        )
+        _log_wsl_mirror_networking_help(config.mirror_listen_port)
+    else:
+        logger.info("Using local camera index %d", config.camera_index)
 
     if client is None:
         logger.info("OPENAI_API_KEY not set; LLM feedback is disabled")
@@ -82,10 +129,17 @@ def main() -> None:
     else:
         camera = LocalCameraAdapter(config.camera_index)
     screenshot_manager = ScreenshotManager(camera)
+    if not screenshot_manager.is_opened():
+        logger.error(
+            "Receiver startup failed. Another process is already using %s:%d.",
+            config.mirror_listen_host,
+            config.mirror_listen_port,
+        )
+        screenshot_manager.release()
+        return
 
     state_tracker: StateTracker | LLMStateTracker
-    if tracker_type == "llm":
-        assert client is not None
+    if tracker_type == "llm" and client is not None:
         state_tracker = LLMStateTracker(
             client=client,
             screenshot_manager=screenshot_manager,
@@ -104,6 +158,7 @@ def main() -> None:
         mic_source=mic_source,
         telemetry_sink=remote_media_server,
     )
+    logger.info("Server startup complete; entering pipeline loop")
     controller.run()
 
 
