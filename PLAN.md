@@ -203,7 +203,7 @@ Main loop at `config.target_fps` (15 desktop, 10 mirror):
 
 ## Step 9: Entry Point — `server/main.py`
 
-- CLI arg: `python main.py [desktop|mirror]` (default: desktop)
+- Run via `uv`; CLI arg is `[desktop|mirror]` (default: desktop)
 - Creates `PipelineConfig.desktop()` or `.mirror()`
 - Instantiates and runs `PipelineController`
 - Handles KeyboardInterrupt gracefully
@@ -246,8 +246,9 @@ Steps 2-7 can be done **in parallel** by different team members.
 
 ## Verification
 
+Run these from `server/`:
+
 1. `uv run pyright .` — zero errors on our code
 2. `uv run ruff check .` — zero lint violations
-3. `uv run python main.py` — webcam opens, face mesh overlays, debug panel shows labels+confidence, blink counter ticks, state transitions trigger mock LLM feedback
-4. Press 'q' to quit cleanly
-5. `uv run python main.py mirror` — terminal output mode (requires Pi or falls back to OpenCV)
+3. `uv run cognitivesense` — desktop mode works and quits cleanly with `q`
+4. `uv run cognitivesense mirror` — mirror mode works (or falls back to OpenCV)
