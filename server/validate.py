@@ -20,12 +20,83 @@ from typing import Any
 
 sys.path.insert(0, os.path.dirname(__file__))
 
-from rich.console import Console
-from rich.table import Table
-from rich import box
-from rich.panel import Panel
-from rich.text import Text
-from rich.rule import Rule
+try:
+    from rich.console import Console
+    from rich.table import Table
+    from rich import box
+    from rich.panel import Panel
+    from rich.text import Text
+    from rich.rule import Rule
+    _RICH_AVAILABLE = True
+except ModuleNotFoundError:
+    _RICH_AVAILABLE = False
+
+    class _PlainBox:
+        ROUNDED = None
+        DOUBLE_EDGE = None
+
+    box = _PlainBox()
+
+    class Text(str):
+        def __new__(cls, text: str, justify: str | None = None, style: str | None = None):
+            del justify, style
+            return str.__new__(cls, text)
+
+    class Panel(str):
+        def __new__(
+            cls,
+            renderable: object,
+            subtitle: str | None = None,
+            border_style: str | None = None,
+        ):
+            del border_style
+            text = str(renderable)
+            if subtitle:
+                text = f"{text}\n{subtitle}"
+            return str.__new__(cls, text)
+
+    class Rule(str):
+        def __new__(cls, title: str):
+            return str.__new__(cls, f"\n=== {title} ===")
+
+    class Table:
+        def __init__(
+            self,
+            title: str = "",
+            box: object | None = None,
+            show_lines: bool = False,
+            header_style: str | None = None,
+            title_justify: str | None = None,
+        ) -> None:
+            del box, show_lines, header_style, title_justify
+            self.title = title
+            self.columns: list[str] = []
+            self.rows: list[tuple[str, ...]] = []
+
+        def add_column(self, name: str, **_: object) -> None:
+            self.columns.append(name)
+
+        def add_row(self, *values: object) -> None:
+            self.rows.append(tuple(str(value) for value in values))
+
+        def add_section(self) -> None:
+            return
+
+        def __str__(self) -> str:
+            lines: list[str] = []
+            if self.title:
+                lines.append(self.title)
+            if self.columns:
+                lines.append(" | ".join(self.columns))
+                lines.append("-" * len(lines[-1]))
+            for row in self.rows:
+                lines.append(" | ".join(row))
+            return "\n".join(lines)
+
+    class Console:
+        def print(self, *objects: object, **_: object) -> None:
+            text = " ".join(str(obj) for obj in objects)
+            print(text)
 
 # ---------------------------------------------------------------------------
 # Shared result type
