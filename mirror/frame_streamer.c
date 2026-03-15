@@ -174,6 +174,33 @@ static int connect_to_server(const char *server_host, uint16_t port) {
     return socket_fd;
 }
 
+static void log_connection_failure_hint(const char *server_host, uint16_t port) {
+    if (errno == ECONNREFUSED) {
+        fprintf(
+            stderr,
+            "Connection refused means nothing is accepting TCP connections on %s:%u yet.\n",
+            server_host,
+            (unsigned int) port
+        );
+        fprintf(
+            stderr,
+            "Make sure the Python server is running and reachable from the Raspberry Pi.\n"
+        );
+        fprintf(
+            stderr,
+            "If the server is running inside WSL2, forward Windows port %u into WSL first.\n",
+            (unsigned int) port
+        );
+    } else if (errno == ETIMEDOUT || errno == EHOSTUNREACH || errno == ENETUNREACH) {
+        fprintf(
+            stderr,
+            "The Raspberry Pi cannot reach %s:%u over the network. Check the server IP, Wi-Fi/LAN routing, and firewall.\n",
+            server_host,
+            (unsigned int) port
+        );
+    }
+}
+
 static int start_camera_process(
     const char *command,
     uint32_t width,
@@ -340,75 +367,13 @@ static const char *state_label(uint8_t state_id) {
     }
 }
 
-static const char *indicator_label(uint8_t indicator_id) {
-    switch (indicator_id) {
-        case 1U:
-            return "blink rate elevated";
-        case 2U:
-            return "blink rate suppressed";
-        case 3U:
-            return "posture slouched";
-        case 4U:
-            return "posture leaning";
-        case 5U:
-            return "eye movement distracted";
-        case 6U:
-            return "facial tension detected";
-        case 7U:
-            return "speech tone stressed";
-        case 8U:
-            return "speech tone monotone";
-        case 9U:
-            return "posture upright";
-        case 10U:
-            return "eye engagement focused";
-        case 11U:
-            return "facial expression relaxed";
-        case 12U:
-            return "speech tone calm";
-        case 13U:
-            return "yawn detected";
-        default:
-            return NULL;
-    }
-}
-
-static const char *recommendation_label(uint8_t recommendation_id) {
-    switch (recommendation_id) {
-        case 1U:
-            return "take a 10 minute break";
-        case 2U:
-            return "hydrate";
-        case 3U:
-            return "stretch and reset posture";
-        case 4U:
-            return "take a breathing pause";
-        case 5U:
-            return "refocus on one task";
-        case 6U:
-            return "silence distractions";
-        case 7U:
-            return "keep your current pace";
-        case 8U:
-            return "reset your posture";
-        default:
-            return NULL;
-    }
-}
-
 static void drain_control_packets(
     int socket_fd,
     uint8_t *control_buffer,
     size_t *control_size,
     MirrorLcdDisplay *lcd_display,
     uint8_t *last_state_id,
-    uint8_t *last_confidence,
-    uint8_t *last_indicator_1,
-    uint8_t *last_indicator_2,
-    uint8_t *last_indicator_3,
-    uint8_t *last_recommendation_1,
-    uint8_t *last_recommendation_2,
-    uint8_t *last_recommendation_3
+    uint8_t *last_confidence
 ) {
     while (true) {
         const ssize_t bytes_read = recv(
@@ -449,68 +414,18 @@ static void drain_control_packets(
                 const uint8_t *payload = control_buffer + FRAME_HEADER_SIZE;
                 const uint8_t state_id = payload[1];
                 const uint8_t confidence = payload[2];
-                const uint8_t indicator_1 = payload_size >= 11U ? payload[8] : 0U;
-                const uint8_t indicator_2 = payload_size >= 11U ? payload[9] : 0U;
-                const uint8_t indicator_3 = payload_size >= 11U ? payload[10] : 0U;
-                const uint8_t recommendation_1 = payload_size >= 14U ? payload[11] : 0U;
-                const uint8_t recommendation_2 = payload_size >= 14U ? payload[12] : 0U;
-                const uint8_t recommendation_3 = payload_size >= 14U ? payload[13] : 0U;
 
                 if (
                     *last_state_id != state_id
                     || *last_confidence != confidence
-                    || *last_indicator_1 != indicator_1
-                    || *last_indicator_2 != indicator_2
-                    || *last_indicator_3 != indicator_3
-                    || *last_recommendation_1 != recommendation_1
-                    || *last_recommendation_2 != recommendation_2
-                    || *last_recommendation_3 != recommendation_3
                 ) {
                     char lcd_state_text[32];
-                    const char *indicator_1_text = indicator_label(indicator_1);
-                    const char *indicator_2_text = indicator_label(indicator_2);
-                    const char *indicator_3_text = indicator_label(indicator_3);
-                    const char *recommendation_1_text = recommendation_label(recommendation_1);
-                    const char *recommendation_2_text = recommendation_label(recommendation_2);
-                    const char *recommendation_3_text = recommendation_label(recommendation_3);
 
                     printf(
                         "Server state: %s (%u%%)\n",
                         state_label(state_id),
                         (unsigned int) ((confidence * 100U + 127U) / 255U)
                     );
-                    if (
-                        indicator_1_text != NULL
-                        || indicator_2_text != NULL
-                        || indicator_3_text != NULL
-                    ) {
-                        printf("Indicators:\n");
-                        if (indicator_1_text != NULL) {
-                            printf("  - %s\n", indicator_1_text);
-                        }
-                        if (indicator_2_text != NULL) {
-                            printf("  - %s\n", indicator_2_text);
-                        }
-                        if (indicator_3_text != NULL) {
-                            printf("  - %s\n", indicator_3_text);
-                        }
-                    }
-                    if (
-                        recommendation_1_text != NULL
-                        || recommendation_2_text != NULL
-                        || recommendation_3_text != NULL
-                    ) {
-                        printf("Recommendations:\n");
-                        if (recommendation_1_text != NULL) {
-                            printf("  - %s\n", recommendation_1_text);
-                        }
-                        if (recommendation_2_text != NULL) {
-                            printf("  - %s\n", recommendation_2_text);
-                        }
-                        if (recommendation_3_text != NULL) {
-                            printf("  - %s\n", recommendation_3_text);
-                        }
-                    }
                     fflush(stdout);
                     snprintf(
                         lcd_state_text,
@@ -522,21 +437,11 @@ static void drain_control_packets(
                     mirror_lcd_set_state(
                         lcd_display,
                         lcd_state_text,
-                        recommendation_1_text != NULL
-                            ? recommendation_1_text
-                            : (indicator_1_text != NULL
-                                ? indicator_1_text
-                                : "streaming live")
+                        "Awaiting advice"
                     );
                     mirror_lcd_refresh(lcd_display);
                     *last_state_id = state_id;
                     *last_confidence = confidence;
-                    *last_indicator_1 = indicator_1;
-                    *last_indicator_2 = indicator_2;
-                    *last_indicator_3 = indicator_3;
-                    *last_recommendation_1 = recommendation_1;
-                    *last_recommendation_2 = recommendation_2;
-                    *last_recommendation_3 = recommendation_3;
                 }
             } else if (
                 memcmp(control_buffer, EVENT_MAGIC, 4U) == 0
@@ -603,12 +508,6 @@ int main(int argc, char **argv) {
     uint64_t frame_count = 0U;
     uint8_t last_state_id = 0xffU;
     uint8_t last_confidence = 0xffU;
-    uint8_t last_indicator_1 = 0xffU;
-    uint8_t last_indicator_2 = 0xffU;
-    uint8_t last_indicator_3 = 0xffU;
-    uint8_t last_recommendation_1 = 0xffU;
-    uint8_t last_recommendation_2 = 0xffU;
-    uint8_t last_recommendation_3 = 0xffU;
     MirrorLcdDisplay lcd_display;
 
     signal(SIGPIPE, SIG_IGN);
@@ -649,6 +548,7 @@ int main(int argc, char **argv) {
     socket_fd = connect_to_server(server_host, port);
     if (socket_fd < 0) {
         fprintf(stderr, "Failed to connect to %s:%u: %s\n", server_host, port, strerror(errno));
+        log_connection_failure_hint(server_host, port);
         free(frame_buffer);
         return 1;
     }
@@ -746,13 +646,7 @@ int main(int argc, char **argv) {
                     &control_size,
                     &lcd_display,
                     &last_state_id,
-                    &last_confidence,
-                    &last_indicator_1,
-                    &last_indicator_2,
-                    &last_indicator_3,
-                    &last_recommendation_1,
-                    &last_recommendation_2,
-                    &last_recommendation_3
+                    &last_confidence
                 );
                 mirror_lcd_refresh(&lcd_display);
                 if (frame_count % 30U == 0U) {
