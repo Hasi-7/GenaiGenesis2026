@@ -4,7 +4,6 @@ import logging
 import time
 from typing import Protocol
 
-from dotenv import load_dotenv
 from models.types import (
     CognitiveStateLabel,
     LLMRequest,
@@ -28,10 +27,8 @@ class ReasoningEngine(Protocol):
         ...
 
 
-load_dotenv()
-
 _DEFAULT_COOLDOWN_SECONDS = 30.0
-_MODEL = "gpt-4.1-nano"
+_DEFAULT_MODEL = "gpt-4.1-nano"
 
 _SYSTEM_PROMPT = """\
 You are a concise cognitive wellness advisor. The user is being \
@@ -74,7 +71,7 @@ class LLMEngine:
         self,
         client: OpenAI | None,
         rate_limiter: RateLimiter | None = None,
-        model: str = _MODEL,
+        model: str = _DEFAULT_MODEL,
     ) -> None:
         self._client = client
         self._rate_limiter = rate_limiter or RateLimiter()

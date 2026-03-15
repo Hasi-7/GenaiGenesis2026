@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import importlib
 import logging
-import os
 from collections.abc import Sequence
 from typing import Protocol, runtime_checkable
 
@@ -76,15 +75,8 @@ def _load_sounddevice() -> _SoundDeviceModuleProtocol:
 class SpeechToneClassifier:
     """Speech tone classifier with cheap heuristic default."""
 
-    def __init__(self) -> None:
-        self._backend = (
-            os.environ.get(
-                "SPEECH_TONE_BACKEND",
-                _DEFAULT_BACKEND,
-            )
-            .strip()
-            .lower()
-        )
+    def __init__(self, backend: str = _DEFAULT_BACKEND) -> None:
+        self._backend = backend.strip().lower()
         self._pipe: AudioClassificationPipelineProtocol | None = None
         self._pipe_failed = False
 
@@ -96,7 +88,7 @@ class SpeechToneClassifier:
             self._backend = "heuristic"
 
         if self._backend == "heuristic":
-            logger.info("SpeechToneClassifier using heuristic backend")
+            logger.debug("SpeechToneClassifier using heuristic backend")
 
     def classify(
         self,
@@ -190,7 +182,7 @@ class SpeechToneClassifier:
             return None
 
         try:
-            logger.info(
+            logger.debug(
                 "Loading transformer speech tone backend; this may download "
                 "model weights"
             )
@@ -303,7 +295,9 @@ if __name__ == "__main__":
     print(f"Recorded {len(audio_data)} samples.")
 
     print("Loading model (first run downloads ~1.2 GB)...")
-    classifier = SpeechToneClassifier()
+    from config.settings import get_settings
+
+    classifier = SpeechToneClassifier(backend=get_settings().speech_tone_backend)
 
     result = classifier.classify(audio_data, SAMPLE_RATE)
     print(f"Label: {result.label}, Confidence: {result.confidence:.3f}")

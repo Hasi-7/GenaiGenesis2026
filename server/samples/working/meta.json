@@ -1,0 +1,9 @@
+{
+  "fps": 15,
+  "width": 1920,
+  "height": 1080,
+  "sample_rate": 16000,
+  "chunk_size": 1600,
+  "duration_seconds": 23.2,
+  "frame_count": 345
+}

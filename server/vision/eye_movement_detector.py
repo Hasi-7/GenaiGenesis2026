@@ -23,6 +23,7 @@ Single-thread assumption: all methods are NOT thread-safe.
 
 from __future__ import annotations
 
+import time
 from collections import deque
 from typing import Protocol
 
@@ -102,6 +103,8 @@ class IrisGazeDetector:
         self,
         center_threshold: float = 0.2,
         window: int = 15,
+        focused_dwell_seconds: float = 0.8,
+        distracted_dwell_seconds: float = 0.6,
     ) -> None:
         """
         Args:
@@ -110,8 +113,12 @@ class IrisGazeDetector:
         """
         self._center_threshold = center_threshold
         self._window = window
+        self._focused_dwell_seconds = focused_dwell_seconds
+        self._distracted_dwell_seconds = distracted_dwell_seconds
         self._h_history: deque[float] = deque(maxlen=window)
         self._v_history: deque[float] = deque(maxlen=window)
+        self._focused_started_at: float | None = None
+        self._distracted_started_at: float | None = None
 
     def detect(self, landmarks: np.ndarray) -> GazeData:
         """Compute gaze ratios and direction for a single face.
@@ -164,30 +171,54 @@ class IrisGazeDetector:
     def classify(self, gaze: GazeData) -> ClassifierResult:
         """Classify focus level from the rolling gaze history.
 
-        Strong centre dwell over the window -> "focused".
-        Mild drift stays near "center" to avoid overcalling distraction.
+        Sustained centre gaze over the window -> "focused".
         Frequent large deviations -> "distracted".
         """
         if len(self._h_history) < self._window // 2:
             # Not enough history yet
-            return ClassifierResult(label="center", confidence=0.45)
+            return ClassifierResult(label="unknown", confidence=0.0)
 
+        now = time.time()
         h_arr = np.array(self._h_history)
         v_arr = np.array(self._v_history)
         centred = (np.abs(h_arr) < self._center_threshold) & (
             np.abs(v_arr) < self._center_threshold
         )
         centre_ratio = float(centred.mean())
+        centered_now = (
+            abs(gaze.horizontal_ratio) < self._center_threshold
+            and abs(gaze.vertical_ratio) < self._center_threshold
+        )
 
-        if centre_ratio >= 0.65:
-            label = "focused"
-            conf = 0.55 + min(0.4, (centre_ratio - 0.65) / 0.35)
-        elif centre_ratio >= 0.45:
-            label = "center"
-            conf = 0.45 + (centre_ratio - 0.45) * 0.5
+        if centered_now:
+            if self._focused_started_at is None:
+                self._focused_started_at = now
+            self._distracted_started_at = None
         else:
+            if self._distracted_started_at is None:
+                self._distracted_started_at = now
+            self._focused_started_at = None
+
+        focused_dwell = (
+            0.0 if self._focused_started_at is None else now - self._focused_started_at
+        )
+        distracted_dwell = (
+            0.0
+            if self._distracted_started_at is None
+            else now - self._distracted_started_at
+        )
+
+        if centre_ratio >= 0.8 and focused_dwell >= self._focused_dwell_seconds:
+            label = "focused"
+            conf = 0.5 + centre_ratio * 0.5
+        elif (
+            centre_ratio <= 0.45 and distracted_dwell >= self._distracted_dwell_seconds
+        ):
             label = "distracted"
-            conf = 0.55 + min(0.35, (0.45 - centre_ratio) * 0.8)
+            conf = 0.5 + (1.0 - centre_ratio) * 0.5
+        else:
+            label = "unknown"
+            conf = 0.0
 
         return ClassifierResult(label=label, confidence=round(conf, 3))
 
@@ -195,6 +226,8 @@ class IrisGazeDetector:
         """Clear gaze history (e.g. on subject change)."""
         self._h_history.clear()
         self._v_history.clear()
+        self._focused_started_at = None
+        self._distracted_started_at = None
 
     # ------------------------------------------------------------------
     # Private helpers

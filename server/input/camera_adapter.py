@@ -27,10 +27,10 @@ class LocalCameraAdapter:
     def read_frame(self) -> NDArray[np.uint8] | None:
         ok, frame = self._capture.read()
         if not ok:
-            logger.info("read_frame: capture read failed")
+            logger.debug("read_frame: capture read failed")
             return None
         frame_array: NDArray[np.uint8] = np.asarray(frame, dtype=np.uint8)
-        logger.info(
+        logger.debug(
             "read_frame: %dx%d frame, notifying %d subscribers",
             frame_array.shape[1],
             frame_array.shape[0],
@@ -101,7 +101,7 @@ class NetworkCameraAdapter:
             daemon=True,
         )
         self._thread.start()
-        logger.info(
+        logger.debug(
             "Listening for mirror frames on %s:%d",
             host,
             port,
@@ -161,7 +161,7 @@ class NetworkCameraAdapter:
                 logger.exception("Mirror receiver accept failed")
                 continue
 
-            logger.info(
+            logger.debug(
                 "Mirror client connected from %s:%d",
                 address[0],
                 address[1],
@@ -180,7 +180,7 @@ class NetworkCameraAdapter:
                 except OSError:
                     pass
                 self._client_socket = None
-                logger.info("Mirror client disconnected")
+                logger.debug("Mirror client disconnected")
 
     def _read_client_loop(self, client_socket: socket.socket) -> None:
         while not self._stop_event.is_set():
@@ -216,7 +216,7 @@ class NetworkCameraAdapter:
                 self._frame_width = width if width > 0 else int(frame_array.shape[1])
                 self._frame_height = height if height > 0 else int(frame_array.shape[0])
             if not self._logged_first_frame:
-                logger.info(
+                logger.debug(
                     "Received first mirror frame: %dx%d (%d bytes JPEG)",
                     self._frame_width,
                     self._frame_height,

@@ -2,11 +2,19 @@
 
 Usage::
 
-    uv run python main.py [desktop|mirror|server]
+    uv run python main.py [desktop|mirror|server|replay <session_dir>]
 
 Or directly::
 
-    uv run python -m server.main [desktop|mirror|server]
+    uv run python -m server.main [desktop|mirror|server|replay <session_dir>]
+
+Modes:
+    desktop   Local webcam + mic with desktop overlay UI (default).
+    mirror    Alias for server mode; accepts remote media on port 9000.
+    server    Headless network receiver for remote camera/mic streams.
+    replay    Replay a recorded session from <session_dir> through the
+              full pipeline. See server/scripts/record_sample.py to
+              capture sessions.
 """
 
 from __future__ import annotations
@@ -26,10 +34,12 @@ from typing import cast
 sys.path.insert(0, os.path.dirname(__file__))
 
 from config.logging_config import setup_logging
+from config.settings import get_settings
 from core.pipeline_controller import PipelineController
 from core.remote_session_runner import RemoteSessionRunner
 from input.camera_adapter import LocalCameraAdapter
 from input.remote_media_server import RemoteClientSession, RemoteMediaServer
+from input.replay_adapters import ReplayCameraAdapter, ReplayMicAdapter
 from input.screenshot_manager import ScreenshotManager
 from models.types import InputSource, PipelineConfig
 from openai import OpenAI
@@ -132,10 +142,16 @@ def _active_receiver_details(config: PipelineConfig) -> str | None:
 
 
 def main() -> None:
+    settings = get_settings()
     setup_logging()
 
     env = sys.argv[1] if len(sys.argv) > 1 else "desktop"
-    if env in {"server", "frontend", "mirror"}:
+    if env == "replay":
+        if len(sys.argv) < 3:
+            logger.error("Usage: main.py replay <session_dir>")
+            return
+        config = PipelineConfig.replay(sys.argv[2])
+    elif env in {"server", "frontend", "mirror"}:
         if env == "frontend":
             logger.warning('Mode "frontend" is deprecated; use "server" instead')
         if env == "mirror":
@@ -146,38 +162,48 @@ def main() -> None:
     else:
         config = PipelineConfig.desktop()
 
-    server_port = os.environ.get("COGNITIVESENSE_SERVER_PORT")
-    if server_port is not None and config.input_source is InputSource.REMOTE_MEDIA:
-        config.remote_media_port = int(server_port)
+    if (
+        settings.cognitivesense_server_port is not None
+        and config.input_source is InputSource.REMOTE_MEDIA
+    ):
+        config.remote_media_port = settings.cognitivesense_server_port
 
     if config.input_source is InputSource.REMOTE_MEDIA:
         _kill_processes_using_ports(config.remote_media_port)
 
-    tracker_type = os.environ.get("STATE_TRACKER_TYPE", config.state_tracker_type)
-    api_key = os.environ.get("OPENAI_API_KEY")
-    client: OpenAI | None = OpenAI(api_key=api_key) if api_key else None
+    tracker_type = settings.state_tracker_type
+    client: OpenAI | None = (
+        OpenAI(api_key=settings.openai_api_key)
+        if settings.openai_api_key
+        else None
+    )
 
-    logger.info(
+    config.target_fps = settings.target_fps
+    config.llm_cooldown_seconds = settings.llm_feedback_cooldown
+
+    logger.debug(
         "Starting CognitiveSense in %s mode (fps=%d, tracker=%s)",
         config.environment.value,
         config.target_fps,
         tracker_type,
     )
     if config.input_source is InputSource.REMOTE_MEDIA:
-        logger.info(
+        logger.debug(
             "Network ingress configured for %s:%d",
             config.remote_media_host,
             config.remote_media_port,
         )
         _log_wsl_mirror_networking_help(config.remote_media_port)
+    elif config.input_source is InputSource.REPLAY:
+        logger.debug("Replaying session from %s", config.replay_session_dir)
     else:
-        logger.info("Using local camera index %d", config.camera_index)
+        logger.debug("Using local camera index %d", config.camera_index)
 
     if client is None:
-        logger.info("OPENAI_API_KEY not set; LLM feedback is disabled")
+        logger.debug("openai_api_key not set; LLM feedback is disabled")
         if tracker_type == "llm":
             logger.warning(
-                "STATE_TRACKER_TYPE=llm requested without OPENAI_API_KEY; "
+                "state_tracker_type=llm requested without openai_api_key; "
                 "falling back to rule-based state tracking",
             )
             tracker_type = "rule"
@@ -212,6 +238,7 @@ def main() -> None:
                 config=config,
                 tracker_type=tracker_type,
                 openai_client=client,
+                speech_tone_backend=settings.speech_tone_backend,
             )
             session_runners[session.session_id] = runner
             runner.start()
@@ -240,8 +267,18 @@ def main() -> None:
         engine = LLMEngine(
             client=client,
             rate_limiter=RateLimiter(cooldown_seconds=config.llm_cooldown_seconds),
+            model=settings.llm_feedback_model,
         )
-        camera = LocalCameraAdapter(config.camera_index)
+
+        mic_source_instance = None
+        if config.input_source is InputSource.REPLAY:
+            camera = ReplayCameraAdapter(config.replay_session_dir)  # type: ignore[assignment]
+            replay_mic = ReplayMicAdapter(config.replay_session_dir)
+            mic_source_instance = replay_mic
+            cleanup_callbacks.append(replay_mic.stop)
+        else:
+            camera = LocalCameraAdapter(config.camera_index)
+
         screenshot_manager = ScreenshotManager(camera)
         cleanup_callbacks.append(screenshot_manager.release)
         if not screenshot_manager.is_opened():
@@ -265,6 +302,9 @@ def main() -> None:
                 client=client,
                 screenshot_manager=screenshot_manager,
                 window_seconds=config.smoothing_window_seconds,
+                cooldown_seconds=settings.llm_state_tracker_cooldown,
+                check_interval_seconds=settings.llm_state_tracker_min_interval,
+                model=settings.llm_state_tracker_model,
             )
         else:
             state_tracker = StateTracker(
@@ -276,8 +316,9 @@ def main() -> None:
             llm_engine=engine,
             screenshot_manager=screenshot_manager,
             state_tracker=state_tracker,
-            mic_source=None,
+            mic_source=mic_source_instance,
             telemetry_sink=None,
+            speech_tone_backend=settings.speech_tone_backend,
         )
         cleanup_callbacks.append(controller.close)
 
@@ -289,7 +330,7 @@ def main() -> None:
     previous_handlers: dict[signal.Signals, signal.Handlers] = {}
 
     def _handle_shutdown(signum: int, _frame: object) -> None:
-        logger.info("Received signal %s; shutting down", signum)
+        logger.debug("Received signal %s; shutting down", signum)
         if remote_media_server is not None:
             remote_media_server.release()
         for runner in list(session_runners.values()):
@@ -301,7 +342,7 @@ def main() -> None:
         previous_handlers[sig] = cast(signal.Handlers, signal.getsignal(sig))
         signal.signal(sig, _handle_shutdown)
 
-    logger.info("Server startup complete; entering pipeline loop")
+    logger.debug("Server startup complete; entering pipeline loop")
     try:
         if config.input_source is InputSource.REMOTE_MEDIA:
             while remote_media_server is not None and remote_media_server.is_opened():
