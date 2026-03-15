@@ -14,11 +14,13 @@ from input.screenshot_manager import ScreenshotManager
 from models.protocols import MicSource
 from models.types import (
     CognitiveState,
+    CognitiveStateLabel,
     FrameAnalysis,
     InputSource,
     LLMRequest,
     LLMResponse,
     PipelineConfig,
+    StateTransition,
     SustainedStateAlert,
 )
 from samples.llm_engine import LLMEngine
@@ -358,17 +360,7 @@ class PipelineController:
                 transition.previous_state.label.value,
                 transition.new_state.label.value,
             )
-            jpeg_bytes = self._screenshot_manager.encode_jpeg()
-            logger.debug("_tick: encode_jpeg -> %d bytes", len(jpeg_bytes))
-            request = LLMRequest(
-                frame_jpeg_bytes=jpeg_bytes,
-                current_state=current_state,
-                transition=transition,
-                recent_analyses=(self._state_tracker.get_recent_analyses(5.0)),
-                sustained_alert=None,
-                trigger_kind="transition",
-            )
-            response = self._llm_engine.request_feedback(request)
+            response = self._request_transition_feedback(current_state, transition)
             logger.debug(
                 "_tick: request_feedback -> %s",
                 "response" if response else "rate-limited",
@@ -451,6 +443,66 @@ class PipelineController:
         if response is not None:
             return response
         return self._fallback_sustained_feedback(current_state, sustained_alert)
+
+    def _request_transition_feedback(
+        self,
+        current_state: CognitiveState,
+        transition: StateTransition,
+    ) -> LLMResponse:
+        jpeg_bytes = self._screenshot_manager.encode_jpeg()
+        logger.debug("_tick: encode_jpeg -> %d bytes", len(jpeg_bytes))
+        request = LLMRequest(
+            frame_jpeg_bytes=jpeg_bytes,
+            current_state=current_state,
+            transition=transition,
+            recent_analyses=self._state_tracker.get_recent_analyses(5.0),
+            sustained_alert=None,
+            trigger_kind="transition",
+        )
+        response = self._llm_engine.request_feedback(request)
+        if response is not None:
+            return response
+        return self._fallback_transition_feedback(current_state, transition)
+
+    def _fallback_transition_feedback(
+        self,
+        current_state: CognitiveState,
+        transition: StateTransition,
+    ) -> LLMResponse:
+        del transition
+        label_value = current_state.label.value
+        if label_value == CognitiveStateLabel.STRESSED.value:
+            text = (
+                "You look tense right now. Pause for one slow breath and "
+                "relax your shoulders before continuing."
+            )
+            severity = "urgent"
+        elif label_value == CognitiveStateLabel.FATIGUED.value:
+            text = (
+                "You seem to be fading. Take a short stretch or water break "
+                "before pushing on."
+            )
+            severity = "warning"
+        elif label_value == CognitiveStateLabel.DISTRACTED.value:
+            text = (
+                "Your attention seems to be drifting. Clear one distraction "
+                "and come back to a single task."
+            )
+            severity = "soft"
+        else:
+            text = (
+                "You look more settled now. Keep the current pace and setup "
+                "working for you."
+            )
+            severity = "soft"
+
+        return LLMResponse(
+            feedback_text=text,
+            timestamp=time.time(),
+            trigger_kind="transition",
+            should_notify=False,
+            severity=severity,
+        )
 
     def _fallback_sustained_feedback(
         self,

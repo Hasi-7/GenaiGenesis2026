@@ -144,9 +144,10 @@ def _build_user_message(request: LLMRequest) -> str:
 
 
 def _severity_for_state(label: CognitiveStateLabel) -> str:
-    if label is CognitiveStateLabel.STRESSED:
+    label_value = label.value
+    if label_value == CognitiveStateLabel.STRESSED.value:
         return "urgent"
-    if label is CognitiveStateLabel.FATIGUED:
+    if label_value == CognitiveStateLabel.FATIGUED.value:
         return "warning"
     return "soft"
 
