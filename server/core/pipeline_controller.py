@@ -7,6 +7,7 @@ from collections.abc import Callable
 from typing import Protocol
 
 from audio.speech_tone_classifier import SpeechToneClassifier
+from config.third_party import load_cv2
 from core.sustained_state_monitor import SustainedStateMonitor
 from input.mic_adapter import LocalMicAdapter
 from input.screenshot_manager import ScreenshotManager
@@ -20,12 +21,13 @@ from models.types import (
     PipelineConfig,
     SustainedStateAlert,
 )
-from reasoning.llm_engine import LLMEngine
+from server.samples.llm_engine import LLMEngine
 from state.eye_state_detector import EyeStateDetector
 from state.head_pose_detector import HeadPoseDetector
 from state.state_tracker import StateTrackerProtocol
 from state.yawn_detector import YawnDetector
 from ui.desktop_ui import DesktopUI
+from ui.frame_overlay import annotate_frame
 from ui.mirror_ui import MirrorUI
 from vision.blink_detector import EarBlinkDetector
 from vision.eye_movement_detector import IrisGazeDetector
@@ -36,6 +38,7 @@ from vision.facial_expression_classifier import (
 from vision.posture_detector import MediaPipePostureDetector
 
 logger = logging.getLogger(__name__)
+cv2 = load_cv2()
 
 
 class PipelineControllerProtocol(Protocol):
@@ -384,6 +387,24 @@ class PipelineController:
             if response is not None:
                 self._emit_feedback(response, current_state)
 
+        if self._telemetry_sink is not None:
+            snapshot_frame = annotate_frame(
+                bgr_frame,
+                current_state,
+                self._last_response,
+                analysis,
+            )
+            ok, encoded = cv2.imencode(
+                ".jpg",
+                snapshot_frame,
+                [cv2.IMWRITE_JPEG_QUALITY, 80],
+            )
+            if ok:
+                self._telemetry_sink.publish_snapshot(
+                    bytes(encoded),
+                    analysis.timestamp,
+                )
+
         # 10. Render UI
         if isinstance(self._renderer, DesktopUI):
             self._renderer.render(
@@ -558,7 +579,7 @@ if __name__ == "__main__":
     from config.logging_config import setup_logging
     from input.camera_adapter import LocalCameraAdapter
     from openai import OpenAI
-    from reasoning.llm_engine import RateLimiter
+    from server.samples.llm_engine import RateLimiter
     from state.state_tracker import StateTracker
 
     setup_logging()

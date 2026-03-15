@@ -72,6 +72,25 @@
         object-fit: cover;
         display: block;
       }
+      .preview-grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+        gap: 12px;
+      }
+      .preview-card {
+        display: flex;
+        flex-direction: column;
+        gap: 10px;
+        text-decoration: none;
+        color: inherit;
+      }
+      .preview-card.active {
+        border-color: rgba(94, 168, 255, 0.55);
+      }
+      .preview-card .preview {
+        aspect-ratio: 4 / 3;
+        border-radius: 12px;
+      }
       .rename-form { display: grid; grid-template-columns: 1fr auto; gap: 10px; margin-top: 12px; }
       .rename-form button { width: auto; min-width: 120px; }
       .device-grid { display: grid; gap: 14px; grid-template-columns: repeat(2, minmax(0, 1fr)); }
@@ -264,7 +283,8 @@
                       <div class="preview-shell">
                         <img
                           id="device-preview"
-                          class="preview"
+                          class="preview live-preview"
+                data-preview-base="/devices/{{ selected_device.deviceKey }}/snapshot.jpg"
                           src="/devices/{{ selected_device.deviceKey }}/snapshot.jpg?ts={{ selected_device.lastSeenAt }}"
                           alt="Live preview for {{ selected_device.displayName }}"
                           onload="this.hidden=false; document.getElementById('device-preview-empty').hidden=true;"
@@ -355,6 +375,64 @@
         {% endif %}
       </section>
 
+      <section class="panel stack">
+        <div>
+          <h2>Live Feeds</h2>
+          <p class="muted">Every claimed device publishes a labeled preview frame here from the analysis backend.</p>
+        </div>
+        <div class="preview-grid">
+          {% for device in devices %}
+            <a class="card preview-card {% if selected_device and selected_device.deviceKey == device.deviceKey %}active{% endif %}" href="/?days={{ days }}&device={{ device.deviceKey }}">
+              <div class="device-header">
+                <div>
+                  <strong>{{ device.displayName }}</strong>
+                  <div class="tiny">{{ device.sourceKind }} · {{ device.lastState }}</div>
+                </div>
+                <strong class="score {% if device.overallScore >= 80 %}good{% elif device.overallScore >= 55 %}warn{% else %}bad{% endif %}">{{ device.overallScore }}</strong>
+              </div>
+              <img
+                class="preview live-preview"
+                data-preview-base="/devices/{{ device.deviceKey }}/snapshot.jpg"
+                src="/devices/{{ device.deviceKey }}/snapshot.jpg?ts={{ device.lastSeenAt }}"
+                alt="Live preview for {{ device.displayName }}"
+              />
+              <div class="tiny">Focused {{ (device.focusedShare * 100)|round|int }}% · notifications {{ device.notificationCount }}</div>
+            </a>
+          {% else %}
+            <div class="empty">No claimed devices yet.</div>
+          {% endfor %}
+        </div>
+      </section>
+
+      <section class="panel stack">
+        <div>
+          <h2>Live Feeds</h2>
+          <p class="muted">Every claimed device publishes a labeled preview frame here from the analysis backend.</p>
+        </div>
+        <div class="preview-grid">
+          {% for device in devices %}
+            <a class="card preview-card {% if selected_device and selected_device.deviceKey == device.deviceKey %}active{% endif %}" href="/?days={{ days }}&device={{ device.deviceKey }}">
+              <div class="device-header">
+                <div>
+                  <strong>{{ device.displayName }}</strong>
+                  <div class="tiny">{{ device.sourceKind }} · {{ device.lastState }}</div>
+                </div>
+                <strong class="score {% if device.overallScore >= 80 %}good{% elif device.overallScore >= 55 %}warn{% else %}bad{% endif %}">{{ device.overallScore }}</strong>
+              </div>
+              <img
+                class="preview live-preview"
+                data-preview-base="/devices/{{ device.deviceKey }}/snapshot.jpg"
+                src="/devices/{{ device.deviceKey }}/snapshot.jpg?ts={{ device.lastSeenAt }}"
+                alt="Live preview for {{ device.displayName }}"
+              />
+              <div class="tiny">Focused {{ (device.focusedShare * 100)|round|int }}% · notifications {{ device.notificationCount }}</div>
+            </a>
+          {% else %}
+            <div class="empty">No claimed devices yet.</div>
+          {% endfor %}
+        </div>
+      </section>
+
       <section class="row two">
         <div class="panel stack">
           <div>
@@ -416,13 +494,15 @@
     </main>
     {% if selected_device %}
       <script>
-        const preview = document.getElementById('device-preview');
-        if (preview) {
-          setInterval(() => {
-            const base = `/devices/{{ selected_device.deviceKey }}/snapshot.jpg`;
+        setInterval(() => {
+          document.querySelectorAll('[data-preview-base]').forEach((preview) => {
+            const base = preview.dataset.previewBase;
+            if (!base) {
+              return;
+            }
             preview.src = `${base}?ts=${Date.now()}`;
-          }, 1500);
-        }
+          });
+        }, 1500);
       </script>
     {% endif %}
   </body>

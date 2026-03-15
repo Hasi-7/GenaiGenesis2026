@@ -9,7 +9,7 @@ from input.remote_media_server import RemoteClientSession
 from input.screenshot_manager import ScreenshotManager
 from models.types import PipelineConfig
 from openai import OpenAI
-from reasoning.llm_engine import LLMEngine, RateLimiter
+from server.samples.llm_engine import LLMEngine, RateLimiter
 from state.state_tracker import LLMStateTracker, StateTracker
 
 from server.control.store import get_control_store
