@@ -24,6 +24,7 @@ from server.models.types import (
     CognitiveState,
     CognitiveStateLabel,
     FrameAnalysis,
+    StateTransition,
     PipelineConfig,
 )
 
@@ -251,6 +252,48 @@ class PipelineControllerSnapshotTests(unittest.TestCase):
             getattr(controller, "_publish_snapshot_if_due")(recorded_at=124.0)
 
         telemetry_sink.publish_snapshot.assert_not_called()
+
+    def test_request_transition_feedback_falls_back_when_llm_returns_none(self) -> None:
+        controller = PipelineController.__new__(PipelineController)
+        screenshot_manager = MagicMock()
+        screenshot_manager.encode_jpeg.return_value = b"jpeg-bytes"
+        state_tracker = MagicMock()
+        state_tracker.get_recent_analyses.return_value = [FrameAnalysis(timestamp=123.0)]
+        llm_engine = MagicMock()
+        llm_engine.request_feedback.return_value = None
+
+        setattr(controller, "_screenshot_manager", screenshot_manager)
+        setattr(controller, "_state_tracker", state_tracker)
+        setattr(controller, "_llm_engine", llm_engine)
+
+        previous_state = CognitiveState(
+            label=CognitiveStateLabel.FOCUSED,
+            confidence=0.7,
+            contributing_signals=[],
+            timestamp=120.0,
+        )
+        current_state = CognitiveState(
+            label=CognitiveStateLabel.STRESSED,
+            confidence=0.9,
+            contributing_signals=[],
+            timestamp=123.0,
+        )
+        transition = StateTransition(
+            previous_state=previous_state,
+            new_state=current_state,
+            transition_time=123.0,
+        )
+
+        response = getattr(controller, "_request_transition_feedback")(
+            current_state,
+            transition,
+        )
+
+        self.assertIsNotNone(response)
+        self.assertEqual(response.trigger_kind, "transition")
+        self.assertEqual(response.severity, "urgent")
+        self.assertIn("slow breath", response.feedback_text)
+        llm_engine.request_feedback.assert_called_once()
 
 
 if __name__ == "__main__":
