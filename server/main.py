@@ -85,6 +85,73 @@ def _kill_processes_using_ports(*ports: int) -> None:
     if not unique_ports:
         return
 
+    if os.name == "nt":
+        _kill_processes_using_ports_windows(unique_ports)
+        return
+
+    _kill_processes_using_ports_posix(unique_ports)
+
+
+def _kill_processes_using_ports_windows(unique_ports: tuple[int, ...]) -> None:
+    netstat = shutil.which("netstat")
+    taskkill = shutil.which("taskkill")
+    if netstat is None or taskkill is None:
+        logger.warning(
+            "Could not verify or kill existing listeners on TCP ports %s",
+            ", ".join(str(port) for port in unique_ports),
+        )
+        return
+
+    result = subprocess.run(
+        [netstat, "-ano", "-p", "tcp"],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    if result.returncode != 0:
+        logger.warning(
+            "Could not verify or kill existing listeners on TCP ports %s",
+            ", ".join(str(port) for port in unique_ports),
+        )
+        return
+
+    target_ports = {str(port) for port in unique_ports}
+    pids: set[int] = set()
+    for line in result.stdout.splitlines():
+        columns = line.split()
+        if len(columns) < 5 or columns[0].upper() != "TCP":
+            continue
+        local_address = columns[1]
+        state = columns[3].upper()
+        pid_text = columns[4]
+        if state != "LISTENING":
+            continue
+        if ":" not in local_address:
+            continue
+        port = local_address.rsplit(":", 1)[-1]
+        if port not in target_ports or not pid_text.isdigit():
+            continue
+        pid = int(pid_text)
+        if pid != os.getpid():
+            pids.add(pid)
+
+    for pid in sorted(pids):
+        subprocess.run(
+            [taskkill, "/F", "/PID", str(pid)],
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+
+    if pids:
+        logger.warning(
+            "Killed existing processes using TCP ports %s",
+            ", ".join(str(port) for port in unique_ports),
+        )
+
+
+def _kill_processes_using_ports_posix(unique_ports: tuple[int, ...]) -> None:
+
     fuser = shutil.which("fuser")
     if fuser is not None:
         result = subprocess.run(
@@ -178,9 +245,7 @@ def main() -> None:
 
     tracker_type = settings.state_tracker_type
     client: OpenAI | None = (
-        OpenAI(api_key=settings.OPENAI_API_KEY)
-        if settings.OPENAI_API_KEY
-        else None
+        OpenAI(api_key=settings.OPENAI_API_KEY) if settings.OPENAI_API_KEY else None
     )
 
     config.target_fps = settings.target_fps
