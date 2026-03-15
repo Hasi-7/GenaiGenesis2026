@@ -343,6 +343,8 @@ static const char *indicator_label(uint8_t indicator_id) {
             return "facial expression relaxed";
         case 12U:
             return "speech tone calm";
+        case 13U:
+            return "yawn detected";
         default:
             return NULL;
     }

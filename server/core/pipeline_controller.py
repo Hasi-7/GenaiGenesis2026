@@ -22,7 +22,10 @@ from models.types import (
     SustainedStateAlert,
 )
 from reasoning.llm_engine import LLMEngine
+from state.eye_state_detector import EyeStateDetector
+from state.head_pose_detector import HeadPoseDetector
 from state.state_tracker import StateTrackerProtocol
+from state.yawn_detector import YawnDetector
 from ui.desktop_ui import DesktopUI
 from ui.mirror_ui import MirrorUI
 from vision.blink_detector import EarBlinkDetector
@@ -83,6 +86,9 @@ class PipelineController:
             ear_threshold=config.ear_blink_threshold,
             consecutive_frames=config.blink_consec_frames,
         )
+        self._eye_state_detector = EyeStateDetector()
+        self._head_pose_detector = HeadPoseDetector()
+        self._yawn_detector = YawnDetector()
         self._gaze_detector = IrisGazeDetector()
         self._expression_classifier = BlendshapeExpressionClassifier()
         self._posture_detector = MediaPipePostureDetector()
@@ -198,25 +204,84 @@ class PipelineController:
                 blink_data.blinks_per_minute,
             )
 
-            # 4. Gaze
-            gaze_data = self._gaze_detector.detect(landmarks)
-            analysis.gaze = gaze_data
-            analysis.gaze_label = self._gaze_detector.classify(gaze_data)
-            logger.info(
-                "_tick: gaze=%s conf=%.2f direction=%s h=%.2f v=%.2f",
-                analysis.gaze_label.label,
-                analysis.gaze_label.confidence,
-                gaze_data.direction,
-                gaze_data.horizontal_ratio,
-                gaze_data.vertical_ratio,
-            )
-
-            # 5. Expression (blendshape-based)
             blendshapes = self._face_detector.last_blendshapes
             logger.debug(
                 "_tick: last_blendshapes -> %s",
                 f"{len(blendshapes)} faces" if blendshapes else "none",
             )
+            if blendshapes:
+                eye_state = self._eye_state_detector.detect(blendshapes[0])
+                analysis.eye_state = eye_state
+                analysis.eye_state_label = self._eye_state_detector.classify(eye_state)
+                logger.info(
+                    "_tick: eyes open=%.2f closed=%s dur=%.2fs perclos=%.2f",
+                    eye_state.openness_average,
+                    eye_state.is_closed,
+                    eye_state.closure_duration_seconds,
+                    eye_state.perclos,
+                )
+                if analysis.eye_state_label is not None:
+                    logger.info(
+                        "_tick: eye_state=%s conf=%.2f",
+                        analysis.eye_state_label.label,
+                        analysis.eye_state_label.confidence,
+                    )
+
+                yawn = self._yawn_detector.detect(blendshapes[0])
+                analysis.yawn = yawn
+                analysis.yawn_label = self._yawn_detector.classify(yawn)
+                logger.info(
+                    "_tick: jaw_open=%.2f yawn_shape=%s dur=%.2fs",
+                    yawn.jaw_open,
+                    yawn.is_yawn_shape,
+                    yawn.yawn_duration_seconds,
+                )
+                if analysis.yawn_label is not None:
+                    logger.info(
+                        "_tick: yawn=%s conf=%.2f",
+                        analysis.yawn_label.label,
+                        analysis.yawn_label.confidence,
+                    )
+
+            # 4. Gaze
+            if analysis.eye_state is not None and analysis.eye_state.is_closed:
+                self._gaze_detector.reset()
+                logger.info("_tick: gaze skipped while eyes are closed")
+            else:
+                gaze_data = self._gaze_detector.detect(landmarks)
+                analysis.gaze = gaze_data
+                analysis.gaze_label = self._gaze_detector.classify(gaze_data)
+                logger.info(
+                    "_tick: gaze=%s conf=%.2f direction=%s h=%.2f v=%.2f",
+                    analysis.gaze_label.label,
+                    analysis.gaze_label.confidence,
+                    gaze_data.direction,
+                    gaze_data.horizontal_ratio,
+                    gaze_data.vertical_ratio,
+                )
+
+            head_pose = self._head_pose_detector.detect(
+                landmarks,
+                rgb_frame.shape[1],
+                rgb_frame.shape[0],
+            )
+            analysis.head_pose = head_pose
+            if head_pose is not None:
+                analysis.head_pose_label = self._head_pose_detector.classify(head_pose)
+                logger.info(
+                    "_tick: head_pose yaw=%.1f pitch=%.1f roll=%.1f",
+                    head_pose.yaw,
+                    head_pose.pitch,
+                    head_pose.roll,
+                )
+                if analysis.head_pose_label is not None:
+                    logger.info(
+                        "_tick: head_pose=%s conf=%.2f",
+                        analysis.head_pose_label.label,
+                        analysis.head_pose_label.confidence,
+                    )
+
+            # 5. Expression (blendshape-based)
             if blendshapes:
                 expression = self._expression_classifier.classify(blendshapes[0])
                 analysis.expression = expression
@@ -225,6 +290,11 @@ class PipelineController:
                     expression.label,
                     expression.confidence,
                 )
+        else:
+            self._eye_state_detector.reset()
+            self._head_pose_detector.reset()
+            self._yawn_detector.reset()
+            self._gaze_detector.reset()
 
         # 6. Posture
         posture_data = self._posture_detector.detect(rgb_frame)

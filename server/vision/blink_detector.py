@@ -92,8 +92,8 @@ class EarBlinkDetector:
         self._threshold = ear_threshold
         self._consec_required = consecutive_frames
 
-        self._consec_count: int = 0          # frames eye has been below threshold
-        self._in_blink: bool = False         # True while eye is currently closed
+        self._consec_count: int = 0  # frames eye has been below threshold
+        self._in_blink: bool = False  # True while eye is currently closed
         self._blink_times: deque[float] = deque()  # timestamps of completed blinks
 
     # ------------------------------------------------------------------
@@ -138,7 +138,7 @@ class EarBlinkDetector:
         bpm = data.blinks_per_minute
         # No blinks recorded yet — not enough data to classify
         if bpm == 0.0:
-            return ClassifierResult(label="normal", confidence=0.5)
+            return ClassifierResult(label="unknown", confidence=0.0)
         if bpm < 10.0:
             label = "stressed"
             conf = max(0.5, 1.0 - bpm / 20.0)

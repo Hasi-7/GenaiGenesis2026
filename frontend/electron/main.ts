@@ -66,6 +66,7 @@ const indicatorLabels: Record<number, string> = {
   10: 'Eye engagement focused',
   11: 'Facial expression relaxed',
   12: 'Speech tone calm',
+  13: 'Yawn detected',
 };
 
 const recommendationLabels: Record<number, string> = {

@@ -58,6 +58,7 @@ const indicatorLabels = {
     10: 'Eye engagement focused',
     11: 'Facial expression relaxed',
     12: 'Speech tone calm',
+    13: 'Yawn detected',
 };
 const recommendationLabels = {
     1: 'Take a 10 minute break',
