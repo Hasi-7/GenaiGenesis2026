@@ -117,6 +117,10 @@ class RemoteClientSession:
 
         self._last_state_emit = 0.0
         self._state_sequence = 0
+        self._latest_feedback_payload: bytes | None = None
+        self._latest_feedback_text = ""
+        self._latest_feedback_sent_at = 0.0
+        self._latest_feedback_replay_at = 0.0
         self._connected_at = time.time()
         self._warned_no_media = False
         self._frame_packets_received = 0
@@ -270,10 +274,15 @@ class RemoteClientSession:
             payload,
             time.time_ns(),
         )
+        self._replay_recent_feedback_if_needed()
 
     def publish_feedback(self, response: LLMResponse, state: CognitiveState) -> None:
         del state
         if not self.has_state_telemetry:
+            logger.debug(
+                "Skipping feedback send for %s because state telemetry is disabled",
+                self.session_label,
+            )
             return
         payload = _FEEDBACK_HEADER.pack(
             _HELLO_VERSION,
@@ -281,11 +290,42 @@ class RemoteClientSession:
             _SEVERITY_TO_ID.get(response.severity, _SEVERITY_SOFT),
             1 if response.should_notify else 0,
         ) + response.feedback_text.encode("utf-8")
+        self._latest_feedback_payload = payload
+        self._latest_feedback_text = response.feedback_text
+        self._latest_feedback_sent_at = time.time()
+        self._latest_feedback_replay_at = self._latest_feedback_sent_at
+        logger.debug(
+            "Sending feedback to %s: %s",
+            self.session_label,
+            response.feedback_text,
+        )
         self._send_packet(
             _EVENT_MAGIC,
             _EVENT_FEEDBACK,
             0,
             payload,
+            time.time_ns(),
+        )
+
+    def _replay_recent_feedback_if_needed(self) -> None:
+        now = time.time()
+        if self._latest_feedback_payload is None:
+            return
+        if now - self._latest_feedback_sent_at > 10.0:
+            return
+        if now - self._latest_feedback_replay_at < 1.0:
+            return
+        self._latest_feedback_replay_at = now
+        logger.debug(
+            "Replaying recent feedback to %s during state publish: %s",
+            self.session_label,
+            self._latest_feedback_text,
+        )
+        self._send_packet(
+            _EVENT_MAGIC,
+            _EVENT_FEEDBACK,
+            0,
+            self._latest_feedback_payload,
             time.time_ns(),
         )
 
