@@ -43,7 +43,7 @@ from input.replay_adapters import ReplayCameraAdapter, ReplayMicAdapter
 from input.screenshot_manager import ScreenshotManager
 from models.types import InputSource, PipelineConfig
 from openai import OpenAI
-from reasoning.llm_engine import LLMEngine, RateLimiter
+from server.samples.llm_engine import LLMEngine, RateLimiter
 from state.state_tracker import LLMStateTracker, StateTracker
 
 logger = logging.getLogger(__name__)

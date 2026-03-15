@@ -1,5 +1,7 @@
 #define _POSIX_C_SOURCE 200809L
 
+#include "lcd_display.h"
+
 #include <arpa/inet.h>
 #include <errno.h>
 #include <signal.h>
@@ -398,6 +400,7 @@ static void drain_control_packets(
     int socket_fd,
     uint8_t *control_buffer,
     size_t *control_size,
+    MirrorLcdDisplay *lcd_display,
     uint8_t *last_state_id,
     uint8_t *last_confidence,
     uint8_t *last_indicator_1,
@@ -463,6 +466,7 @@ static void drain_control_packets(
                     || *last_recommendation_2 != recommendation_2
                     || *last_recommendation_3 != recommendation_3
                 ) {
+                    char lcd_state_text[32];
                     const char *indicator_1_text = indicator_label(indicator_1);
                     const char *indicator_2_text = indicator_label(indicator_2);
                     const char *indicator_3_text = indicator_label(indicator_3);
@@ -508,6 +512,23 @@ static void drain_control_packets(
                         }
                     }
                     fflush(stdout);
+                    snprintf(
+                        lcd_state_text,
+                        sizeof(lcd_state_text),
+                        "%s %u%%",
+                        state_label(state_id),
+                        (unsigned int) ((confidence * 100U + 127U) / 255U)
+                    );
+                    mirror_lcd_set_state(
+                        lcd_display,
+                        lcd_state_text,
+                        recommendation_1_text != NULL
+                            ? recommendation_1_text
+                            : (indicator_1_text != NULL
+                                ? indicator_1_text
+                                : "streaming live")
+                    );
+                    mirror_lcd_refresh(lcd_display);
                     *last_state_id = state_id;
                     *last_confidence = confidence;
                     *last_indicator_1 = indicator_1;
@@ -535,6 +556,16 @@ static void drain_control_packets(
                     (const char *) text_payload
                 );
                 fflush(stdout);
+                if (lcd_display != NULL) {
+                    char feedback_text[257];
+                    const size_t copy_size = text_payload_size < sizeof(feedback_text) - 1U
+                        ? text_payload_size
+                        : sizeof(feedback_text) - 1U;
+                    memcpy(feedback_text, text_payload, copy_size);
+                    feedback_text[copy_size] = '\0';
+                    mirror_lcd_set_feedback(lcd_display, feedback_text);
+                    mirror_lcd_refresh(lcd_display);
+                }
             }
 
             memmove(
@@ -578,6 +609,7 @@ int main(int argc, char **argv) {
     uint8_t last_recommendation_1 = 0xffU;
     uint8_t last_recommendation_2 = 0xffU;
     uint8_t last_recommendation_3 = 0xffU;
+    MirrorLcdDisplay lcd_display;
 
     signal(SIGPIPE, SIG_IGN);
 
@@ -595,6 +627,10 @@ int main(int argc, char **argv) {
     width = argc > 3 ? (uint32_t) strtoul(argv[3], NULL, 10) : DEFAULT_WIDTH;
     height = argc > 4 ? (uint32_t) strtoul(argv[4], NULL, 10) : DEFAULT_HEIGHT;
     fps = argc > 5 ? (uint32_t) strtoul(argv[5], NULL, 10) : DEFAULT_FPS;
+
+    mirror_lcd_init(&lcd_display);
+    mirror_lcd_set_connecting(&lcd_display, server_host, port);
+    mirror_lcd_refresh(&lcd_display);
 
     if (
         !find_command_on_path("rpicam-vid", camera_command, sizeof(camera_command))
@@ -640,6 +676,8 @@ int main(int argc, char **argv) {
         port,
         camera_command
     );
+    mirror_lcd_set_streaming(&lcd_display, width, height, fps);
+    mirror_lcd_refresh(&lcd_display);
 
     while (true) {
         const ssize_t bytes_read = read(camera_stdout_fd, read_buffer, sizeof(read_buffer));
@@ -706,6 +744,7 @@ int main(int argc, char **argv) {
                     socket_fd,
                     control_buffer,
                     &control_size,
+                    &lcd_display,
                     &last_state_id,
                     &last_confidence,
                     &last_indicator_1,
@@ -715,6 +754,7 @@ int main(int argc, char **argv) {
                     &last_recommendation_2,
                     &last_recommendation_3
                 );
+                mirror_lcd_refresh(&lcd_display);
                 if (frame_count % 30U == 0U) {
                     printf(
                         "Sent %llu frames\n",
@@ -733,6 +773,7 @@ int main(int argc, char **argv) {
 
 cleanup:
     stop_camera_process(child_pid, camera_stdout_fd);
+    mirror_lcd_close(&lcd_display);
     if (socket_fd >= 0) {
         close(socket_fd);
     }

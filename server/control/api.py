@@ -1,8 +1,10 @@
 from __future__ import annotations
 
 import re
+from datetime import datetime
 from pathlib import Path
 from typing import Annotated
+from urllib.parse import quote_plus
 
 from fastapi import (
     Cookie,
@@ -34,7 +36,19 @@ from server.control.store import UserRecord, get_control_store
 
 app = FastAPI(title="CognitiveSense Control API", version="0.1.0")
 
+
+def _format_timestamp(value: float | None) -> str:
+    if value is None:
+        return "Never"
+    try:
+        stamp = float(value)
+    except (TypeError, ValueError):
+        return str(value)
+    return datetime.fromtimestamp(stamp).strftime("%Y-%m-%d %H:%M")
+
+
 _TEMPLATES = Jinja2Templates(directory=str(Path(__file__).with_name("templates")))
+_TEMPLATES.env.filters["datetime"] = _format_timestamp
 _AUTH_COOKIE = "cognitivesense_token"
 _SNAPSHOT_DIR = Path(get_control_store().db_path).parent / "snapshots"
 
@@ -106,15 +120,20 @@ def index(
         user_id=user.id, days=selected_days
     )
     selected_key = device or (devices[0].deviceKey if devices else None)
-    selected_device = (
-        get_control_store().device_detail_for_user(
+    selected_device = None
+    if selected_key is not None:
+        selected_device = get_control_store().device_detail_for_user(
             user_id=user.id,
             device_key=selected_key,
             days=selected_days,
         )
-        if selected_key is not None
-        else None
-    )
+    if selected_device is None and devices:
+        fallback_key = devices[0].deviceKey
+        selected_device = get_control_store().device_detail_for_user(
+            user_id=user.id,
+            device_key=fallback_key,
+            days=selected_days,
+        )
     return _TEMPLATES.TemplateResponse(
         request,
         "dashboard.html",
@@ -148,7 +167,8 @@ def register_form(
             raise RuntimeError("failed to create session")
     except Exception as exc:
         return RedirectResponse(
-            url=f"/?message={str(exc)}", status_code=status.HTTP_303_SEE_OTHER
+            url=f"/?message={quote_plus(str(exc))}",
+            status_code=status.HTTP_303_SEE_OTHER,
         )
     response = RedirectResponse(url="/", status_code=status.HTTP_303_SEE_OTHER)
     response.set_cookie(
@@ -164,7 +184,8 @@ def login_form(
     token = get_control_store().authenticate(email, password)
     if token is None:
         return RedirectResponse(
-            url="/?message=Invalid credentials", status_code=status.HTTP_303_SEE_OTHER
+            url="/?message=Invalid+credentials",
+            status_code=status.HTTP_303_SEE_OTHER,
         )
     response = RedirectResponse(url="/", status_code=status.HTTP_303_SEE_OTHER)
     response.set_cookie(
@@ -188,13 +209,17 @@ def claim_device_form(
 ) -> RedirectResponse:
     if user is None:
         return RedirectResponse(
-            url="/?message=Sign in first", status_code=status.HTTP_303_SEE_OTHER
+            url="/?message=Sign+in+first", status_code=status.HTTP_303_SEE_OTHER
         )
     get_control_store().claim_device(
         user_id=user.id, device_key=device_key, nickname=nickname or None
     )
     return RedirectResponse(
-        url=f"/?message=Claimed+{device_key}", status_code=status.HTTP_303_SEE_OTHER
+        url=(
+            f"/?device={quote_plus(device_key)}"
+            f"&message={quote_plus(f'Claimed {device_key}')}"
+        ),
+        status_code=status.HTTP_303_SEE_OTHER,
     )
 
 
@@ -206,7 +231,7 @@ def rename_device_form(
 ) -> RedirectResponse:
     if user is None:
         return RedirectResponse(
-            url="/?message=Sign in first",
+            url="/?message=Sign+in+first",
             status_code=status.HTTP_303_SEE_OTHER,
         )
     try:
@@ -217,11 +242,14 @@ def rename_device_form(
         )
     except Exception as exc:
         return RedirectResponse(
-            url=f"/?device={device_key}&message={str(exc)}",
+            url=(f"/?device={quote_plus(device_key)}&message={quote_plus(str(exc))}"),
             status_code=status.HTTP_303_SEE_OTHER,
         )
     return RedirectResponse(
-        url=f"/?device={device_key}&message=Renamed+{device_key}",
+        url=(
+            f"/?device={quote_plus(device_key)}"
+            f"&message={quote_plus(f'Renamed {device_key}')}"
+        ),
         status_code=status.HTTP_303_SEE_OTHER,
     )
 

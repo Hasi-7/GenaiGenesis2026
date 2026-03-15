@@ -210,3 +210,39 @@ To make a mirror device claimable from the website, either let it use its hostna
 ```bash
 COGNITIVESENSE_DEVICE_ID=bathroom-mirror ./mirror/build/mirror_frame_streamer 192.168.1.10
 ```
+
+### Mirror LCD Feedback
+
+The Raspberry Pi mirror streamer can now mirror server state and LLM feedback onto a directly wired HD44780-style 16x2 LCD with no I2C backpack.
+
+Build dependency on the Pi:
+
+```bash
+sudo apt install libgpiod-dev
+cmake -S mirror -B mirror/build
+cmake --build mirror/build
+```
+
+Enable the LCD by exporting the BCM GPIO pins you wired for `RS`, `E`, and `D4`-`D7`:
+
+```bash
+export COGNITIVESENSE_LCD_ENABLE=1
+export COGNITIVESENSE_LCD_RS_PIN=17
+export COGNITIVESENSE_LCD_E_PIN=27
+export COGNITIVESENSE_LCD_D4_PIN=22
+export COGNITIVESENSE_LCD_D5_PIN=23
+export COGNITIVESENSE_LCD_D6_PIN=24
+export COGNITIVESENSE_LCD_D7_PIN=25
+```
+
+If your Pi exposes the header lines through a different gpiochip, set it explicitly:
+
+```bash
+export COGNITIVESENSE_LCD_GPIO_CHIP=/dev/gpiochip4
+```
+
+Then start the mirror streamer normally. The first line shows the current analyzed state, and incoming LLM feedback pages across the display automatically.
+
+## Control Website Live Feeds
+
+Claimed devices now publish labeled snapshot previews into the control website. The selected device preview still updates live, and the main dashboard also shows a live feed grid for all claimed devices so mirror and desktop streams stay visible outside of debugging.

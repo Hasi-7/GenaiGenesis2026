@@ -1,7 +1,7 @@
 services:
   analysis:
     build: .
-    command: /app/.venv/bin/python main.py server
+    command: ["/app/.venv/bin/python", "main.py", "server"]
     environment:
       COGNITIVESENSE_SERVER_PORT: "9000"
       COGNITIVESENSE_DB_PATH: /app/data/control.db
@@ -14,7 +14,7 @@ services:
 
   control:
     build: .
-    command: /app/.venv/bin/uvicorn server.control.api:app --host 0.0.0.0 --port 8080
+    command: ["/app/.venv/bin/python", "-m", "uvicorn", "server.control.api:app", "--host", "0.0.0.0", "--port", "8080"]
     environment:
       COGNITIVESENSE_DB_PATH: /app/data/control.db
     ports:
