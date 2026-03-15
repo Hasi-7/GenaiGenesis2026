@@ -1,0 +1,247 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>CognitiveSense · Validation Report</title>
+<style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+           background: #f4f6f9; color: #1a1a2e; padding: 24px; }
+    h1 { font-size: 1.6rem; font-weight: 700; color: #1a1a2e; }
+    .subtitle { color: #555; font-size: 0.85rem; margin-top: 4px; }
+    .header { background: #1a1a2e; color: #fff; border-radius: 10px;
+              padding: 24px 28px; margin-bottom: 24px; }
+    .header h1 { color: #fff; }
+    .header .subtitle { color: #aac4e0; }
+    .grand-badge { display:inline-block; margin-top:12px; padding: 6px 16px;
+                   border-radius: 20px; font-weight: 700; font-size: 1rem; }
+    .badge-green  { background:#16a34a; color:#fff; }
+    .badge-yellow { background:#d97706; color:#fff; }
+    .badge-red    { background:#dc2626; color:#fff; }
+
+    /* how-it-works box */
+    .how-box { background:#fff; border-left: 4px solid #3b82f6;
+               border-radius: 8px; padding: 18px 22px; margin-bottom: 24px;
+               box-shadow: 0 1px 4px rgba(0,0,0,.07); }
+    .how-box h2 { font-size: 1rem; color: #1d4ed8; margin-bottom: 10px; }
+    .how-box p  { font-size: 0.88rem; color: #374151; line-height: 1.6; margin-bottom: 10px; }
+    .how-box ul { margin: 8px 0 0 18px; font-size: 0.88rem; color: #374151; line-height: 1.8; }
+    .pipeline { display:flex; align-items:center; flex-wrap:wrap; gap:6px;
+                margin: 10px 0 14px; font-size: 0.82rem; }
+    .pipe-step { background:#e2e8f0; color:#1e293b; padding:4px 10px;
+                 border-radius:6px; font-weight:600; white-space:nowrap; }
+    .pipe-step.highlight { background:#1d4ed8; color:#fff; }
+    .pipe-arrow { color:#94a3b8; font-size:1rem; }
+    .how-table { width:100%; border-collapse:collapse; font-size:0.83rem;
+                 margin: 10px 0 14px; }
+    .how-table th { background:#1e293b; color:#cbd5e1; padding:8px 12px;
+                    text-align:left; font-weight:600; }
+    .how-table td { padding:8px 12px; border-bottom:1px solid #e2e8f0;
+                    color:#374151; vertical-align:top; line-height:1.5; }
+    .how-table tr:nth-child(even) td { background:#f8fafc; }
+    .how-table td:first-child { font-weight:600; color:#1e293b; white-space:nowrap; }
+    .how-box code { background:#f1f5f9; color:#1d4ed8; padding:1px 5px;
+                    border-radius:4px; font-size:0.82rem; }
+
+    /* summary strip */
+    .summary-grid { display: flex; flex-wrap: wrap; gap: 12px; margin-bottom: 28px; }
+    .summary-card { background: #fff; border-radius: 8px; padding: 14px 18px;
+                    flex: 1 1 180px; box-shadow: 0 1px 4px rgba(0,0,0,.07);
+                    border-top: 4px solid #ccc; }
+    .summary-card.all-pass  { border-color: #16a34a; }
+    .summary-card.some-fail { border-color: #d97706; }
+    .summary-card.all-fail  { border-color: #dc2626; }
+    .summary-card .sc-name  { font-size: 0.75rem; font-weight: 600; color: #555;
+                               text-transform: uppercase; letter-spacing: .04em; }
+    .summary-card .sc-rate  { font-size: 1.6rem; font-weight: 800; margin: 4px 0 2px; }
+    .summary-card .sc-sub   { font-size: 0.78rem; color: #777; }
+    .green { color: #16a34a; } .yellow { color: #d97706; } .red { color: #dc2626; }
+
+    /* section */
+    .section { background: #fff; border-radius: 10px; margin-bottom: 28px;
+               box-shadow: 0 1px 4px rgba(0,0,0,.07); overflow: hidden; }
+    .section-header { background: #1e293b; color: #e2e8f0; padding: 14px 20px; }
+    .section-header h2 { font-size: 1rem; font-weight: 700; }
+    .section-header .src { font-size: 0.78rem; color: #94a3b8; margin-top: 2px; }
+    .section-desc { padding: 14px 20px; background: #f8fafc;
+                    border-bottom: 1px solid #e2e8f0;
+                    font-size: 0.85rem; color: #374151; line-height: 1.6; }
+    .error-box { padding: 16px 20px; color: #dc2626; font-size: 0.88rem; }
+
+    /* table */
+    .tbl-wrap { overflow-x: auto; }
+    table { width: 100%; border-collapse: collapse; font-size: 0.83rem; }
+    thead th { background: #1e293b; color: #cbd5e1; padding: 10px 12px;
+               text-align: left; white-space: nowrap; font-weight: 600; }
+    tbody tr:nth-child(even) { background: #f8fafc; }
+    tbody tr:hover { background: #eff6ff; }
+    tbody td { padding: 9px 12px; border-bottom: 1px solid #e9ecef;
+               vertical-align: top; color: #1a1a2e; }
+    td.pass { color: #15803d; font-weight: 700; }
+    td.fail { color: #dc2626; font-weight: 700; }
+    td.expected { color: #1d4ed8; }
+    td.actual-pass { color: #15803d; font-weight: 600; }
+    td.actual-fail { color: #dc2626; font-weight: 600; }
+    td.conf { color: #555; font-variant-numeric: tabular-nums; }
+    td.note { color: #6b7280; font-size: 0.78rem; }
+    </style>
+</head>
+<body>
+  <div class="header">
+    <h1>CognitiveSense &middot; Classifier Validation Report</h1>
+    <div class="subtitle">2026-03-15 03:15:32</div>
+    <span class="grand-badge badge-green">91/91 tests passed (100%)</span>
+  </div>
+
+  
+    <div class="how-box">
+      <h2>How these tests work — no real person required</h2>
+      <p>The full production pipeline looks like this:</p>
+      <div class="pipeline">
+        <span class="pipe-step">Camera</span>
+        <span class="pipe-arrow">&#8594;</span>
+        <span class="pipe-step">MediaPipe</span>
+        <span class="pipe-arrow">&#8594;</span>
+        <span class="pipe-step highlight">landmarks / blendshapes</span>
+        <span class="pipe-arrow">&#8594;</span>
+        <span class="pipe-step highlight">Classifier</span>
+        <span class="pipe-arrow">&#8594;</span>
+        <span class="pipe-step">label</span>
+      </div>
+      <p>These tests <strong>skip the Camera and MediaPipe steps entirely</strong> and inject
+         hand-crafted numbers directly at the classifier stage. MediaPipe is Google&rsquo;s
+         library — we trust it works. What we&rsquo;re testing is: <em>given the numbers
+         MediaPipe would produce, does our logic classify them correctly?</em></p>
+      <table class="how-table">
+        <thead><tr><th>Classifier</th><th>What the test injects instead of a real person</th></tr></thead>
+        <tbody>
+          <tr>
+            <td>Expression</td>
+            <td>A hand-crafted Python dict of blendshape weights, e.g.
+                <code>{"browDownLeft": 0.9, "mouthSmileLeft": 0.3}</code>.
+                MediaPipe normally produces this dict from a camera frame — we just write it directly.</td>
+          </tr>
+          <tr>
+            <td>Blink / Gaze</td>
+            <td>A synthetic 478&times;3 numpy array of landmark coordinates. Only the handful of
+                indices that matter (eye corners, iris centre) are set to mathematically exact
+                positions; everything else is zero. This gives us a known EAR value or gaze ratio
+                without needing a face.</td>
+          </tr>
+          <tr>
+            <td>Posture</td>
+            <td>A <code>PostureData(shoulder_angle=20.0, head_tilt=5.0, is_slouching=True)</code>
+                dataclass passed straight to <code>classify()</code>. No pose estimation runs.</td>
+          </tr>
+          <tr>
+            <td>Speech tone</td>
+            <td>Numpy sine waves and noise arrays (<code>np.sin</code>, <code>np.random</code>)
+                at known amplitudes, so the RMS and zero-crossing rate are predictable.</td>
+          </tr>
+          <tr>
+            <td>LLM state tracker</td>
+            <td>Raw JSON strings passed directly to the response-parsing function.
+                No API call is made.</td>
+          </tr>
+          <tr>
+            <td>State tracker</td>
+            <td>Lists of <code>ClassifierResult</code> objects passed to the weighted-vote
+                function directly.</td>
+          </tr>
+        </tbody>
+      </table>
+      <p style="margin-top:14px;"><strong>Column guide:</strong></p>
+      <ul>
+        <li><strong>Inputs</strong> — what was passed to the classifier</li>
+        <li><strong>Expected</strong> — the label it <em>should</em> return for those inputs</li>
+        <li><strong>Actual</strong> — what it actually returned at run-time</li>
+        <li><strong>Confidence</strong> — the classifier&rsquo;s own score (&#8212; means N/A)</li>
+        <li><strong>Status</strong> — PASS if Actual == Expected, FAIL otherwise</li>
+        <li><strong>Note</strong> — why those inputs should produce that label</li>
+      </ul>
+    </div>
+    
+
+  <div class="summary-grid"><div class="summary-card all-pass"><div class="sc-name">BlendshapeExpressionClassifier</div><div class="sc-rate green">100%</div><div class="sc-sub">10 / 10 passed</div></div><div class="summary-card all-pass"><div class="sc-name">EarBlinkDetector</div><div class="sc-rate green">100%</div><div class="sc-sub">12 / 12 passed</div></div><div class="summary-card all-pass"><div class="sc-name">IrisGazeDetector</div><div class="sc-rate green">100%</div><div class="sc-sub">9 / 9 passed</div></div><div class="summary-card all-pass"><div class="sc-name">MediaPipePostureDetector</div><div class="sc-rate green">100%</div><div class="sc-sub">8 / 8 passed</div></div><div class="summary-card all-pass"><div class="sc-name">SpeechToneClassifier (heuristic)</div><div class="sc-rate green">100%</div><div class="sc-sub">10 / 10 passed</div></div><div class="summary-card all-pass"><div class="sc-name">LLMStateTracker (parse logic)</div><div class="sc-rate green">100%</div><div class="sc-sub">12 / 12 passed</div></div><div class="summary-card all-pass"><div class="sc-name">StateTracker (weighted vote)</div><div class="sc-rate green">100%</div><div class="sc-sub">30 / 30 passed</div></div></div>
+
+  
+        <div class="section">
+          <div class="section-header">
+            <h2>BlendshapeExpressionClassifier
+              <span class="green" style="font-size:0.85rem; margin-left:12px;">10/10 passed</span>
+            </h2>
+          </div>
+          <div class="section-desc">Detects facial expressions (neutral / relaxed / tense) from Apple ARKit blendshape weights. Each test feeds known blendshape values (e.g. browDownLeft=0.9 for a frown) directly into the classifier and checks it returns the right label — no camera needed.</div>
+          
+          <div class="tbl-wrap"><table><thead><tr><th>Test Case</th><th>Inputs</th><th>Expected</th><th>Actual</th><th>Confidence</th><th>Status</th><th>Note</th></tr></thead><tbody><tr><td>All zeros -&gt; neutral</td><td>all zeros</td><td class="expected">neutral</td><td class="actual-pass">neutral</td><td class="conf">1.000</td><td class="pass">✓ PASS</td><td class="note">raw: neutral=1.000, tense=0.000, relaxed=0.000</td></tr><tr><td>Heavy brow furrow -&gt; tense</td><td>browDownLeft=0.90, browDownRight=0.90, browInnerUp=0.80</td><td class="expected">tense</td><td class="actual-pass">tense</td><td class="conf">0.864</td><td class="pass">✓ PASS</td><td class="note">raw: tense=2.550, neutral=0.400, relaxed=0.000</td></tr><tr><td>Eye squint + nose sneer -&gt; tense</td><td>eyeSquintLeft=0.85, eyeSquintRight=0.85, noseSneerLeft=0.80,…</td><td class="expected">tense</td><td class="actual-pass">tense</td><td class="conf">0.860</td><td class="pass">✓ PASS</td><td class="note">raw: tense=2.450, neutral=0.400, relaxed=0.000</td></tr><tr><td>Tight lips (pressed) -&gt; tense</td><td>mouthPressLeft=0.90, mouthPressRight=0.90, mouthFrownLeft=0.…</td><td class="expected">tense</td><td class="actual-pass">tense</td><td class="conf">0.857</td><td class="pass">✓ PASS</td><td class="note">raw: tense=2.400, neutral=0.400, relaxed=0.000</td></tr><tr><td>Big genuine smile -&gt; relaxed</td><td>mouthSmileLeft=0.95, mouthSmileRight=0.95, cheekSquintLeft=0…</td><td class="expected">relaxed</td><td class="actual-pass">relaxed</td><td class="conf">0.924</td><td class="pass">✓ PASS</td><td class="note">raw: relaxed=4.850, neutral=0.400, tense=0.000</td></tr><tr><td>Smile without cheek squint -&gt; relaxed</td><td>mouthSmileLeft=0.80, mouthSmileRight=0.80</td><td class="expected">relaxed</td><td class="actual-pass">relaxed</td><td class="conf">0.857</td><td class="pass">✓ PASS</td><td class="note">raw: relaxed=2.400, neutral=0.400, tense=0.000</td></tr><tr><td>Jaw open + smile -&gt; relaxed</td><td>mouthSmileLeft=0.60, mouthSmileRight=0.60, jawOpen=0.70</td><td class="expected">relaxed</td><td class="actual-pass">relaxed</td><td class="conf">0.843</td><td class="pass">✓ PASS</td><td class="note">raw: relaxed=2.150, neutral=0.400, tense=0.000</td></tr><tr><td>Slight brow raise only -&gt; neutral</td><td>browInnerUp=0.15</td><td class="expected">neutral</td><td class="actual-pass">neutral</td><td class="conf">0.775</td><td class="pass">✓ PASS</td><td class="note">raw: neutral=0.775, tense=0.225, relaxed=0.000</td></tr><tr><td>Mixed tense + relaxed -&gt; strongest wins</td><td>browDownLeft=0.90, browDownRight=0.90, mouthSmileLeft=0.20, …</td><td class="expected">tense</td><td class="actual-pass">tense</td><td class="conf">0.574</td><td class="pass">✓ PASS</td><td class="note">raw: tense=1.350, relaxed=0.600, neutral=0.400</td></tr><tr><td>Strong frown -&gt; tense</td><td>mouthFrownLeft=0.90, mouthFrownRight=0.90, browDownLeft=0.70…</td><td class="expected">tense</td><td class="actual-pass">tense</td><td class="conf">0.857</td><td class="pass">✓ PASS</td><td class="note">raw: tense=2.400, neutral=0.400, relaxed=0.000</td></tr></tbody></table></div>
+        </div>
+        
+        <div class="section">
+          <div class="section-header">
+            <h2>EarBlinkDetector
+              <span class="green" style="font-size:0.85rem; margin-left:12px;">12/12 passed</span>
+            </h2>
+          </div>
+          <div class="section-desc">Measures eye-openness via the Eye Aspect Ratio (EAR) and counts blinks per minute. Tests use synthetic landmark arrays built to produce exact EAR values, plus a state-machine check that verifies a blink only fires after the required number of consecutive closed frames.</div>
+          
+          <div class="tbl-wrap"><table><thead><tr><th>Test Case</th><th>Inputs</th><th>Expected</th><th>Actual</th><th>Confidence</th><th>Status</th><th>Note</th></tr></thead><tbody><tr><td>EAR round-trip: EAR=0.30 (open)</td><td>synthetic landmarks -&gt; target EAR=0.30</td><td class="expected">avg~0.30</td><td class="actual-pass">avg=0.300</td><td class="conf">—</td><td class="pass">✓ PASS</td><td class="note">geometric accuracy check</td></tr><tr><td>EAR round-trip: EAR=0.21 (threshold)</td><td>synthetic landmarks -&gt; target EAR=0.21</td><td class="expected">avg~0.21</td><td class="actual-pass">avg=0.210</td><td class="conf">—</td><td class="pass">✓ PASS</td><td class="note">geometric accuracy check</td></tr><tr><td>EAR round-trip: EAR=0.10 (closed)</td><td>synthetic landmarks -&gt; target EAR=0.10</td><td class="expected">avg~0.10</td><td class="actual-pass">avg=0.100</td><td class="conf">—</td><td class="pass">✓ PASS</td><td class="note">geometric accuracy check</td></tr><tr><td>BPM=0.0 -&gt; unknown</td><td>blinks_per_minute=0.0</td><td class="expected">unknown</td><td class="actual-pass">unknown</td><td class="conf">0.000</td><td class="pass">✓ PASS</td><td class="note">No data yet</td></tr><tr><td>BPM=5.0 -&gt; stressed</td><td>blinks_per_minute=5.0</td><td class="expected">stressed</td><td class="actual-pass">stressed</td><td class="conf">0.750</td><td class="pass">✓ PASS</td><td class="note">bpm &lt; 10 -&gt; stressed</td></tr><tr><td>BPM=9.9 -&gt; stressed</td><td>blinks_per_minute=9.9</td><td class="expected">stressed</td><td class="actual-pass">stressed</td><td class="conf">0.505</td><td class="pass">✓ PASS</td><td class="note">bpm just below 10</td></tr><tr><td>BPM=12.0 -&gt; elevated</td><td>blinks_per_minute=12.0</td><td class="expected">elevated</td><td class="actual-pass">elevated</td><td class="conf">0.550</td><td class="pass">✓ PASS</td><td class="note">10–15 bpm band</td></tr><tr><td>BPM=17.5 -&gt; normal</td><td>blinks_per_minute=17.5</td><td class="expected">normal</td><td class="actual-pass">normal</td><td class="conf">1.000</td><td class="pass">✓ PASS</td><td class="note">ideal centre of normal band</td></tr><tr><td>BPM=22.0 -&gt; elevated</td><td>blinks_per_minute=22.0</td><td class="expected">elevated</td><td class="actual-pass">elevated</td><td class="conf">0.550</td><td class="pass">✓ PASS</td><td class="note">20–25 bpm band</td></tr><tr><td>BPM=30.0 -&gt; fatigued</td><td>blinks_per_minute=30.0</td><td class="expected">fatigued</td><td class="actual-pass">fatigued</td><td class="conf">0.750</td><td class="pass">✓ PASS</td><td class="note">bpm &gt; 25 -&gt; fatigued</td></tr><tr><td>3 closed + 1 open -&gt; blink registered</td><td>EAR=0.10 × 3 frames, then EAR=0.30</td><td class="expected">True on 4th frame</td><td class="actual-pass">True</td><td class="conf">—</td><td class="pass">✓ PASS</td><td class="note">state machine: blink fires on eye-open</td></tr><tr><td>2 closed + 1 open -&gt; no blink (below consec)</td><td>EAR=0.10 × 2 frames, then EAR=0.30</td><td class="expected">False</td><td class="actual-pass">False</td><td class="conf">—</td><td class="pass">✓ PASS</td><td class="note">consecutive_frames=3 not reached</td></tr></tbody></table></div>
+        </div>
+        
+        <div class="section">
+          <div class="section-header">
+            <h2>IrisGazeDetector
+              <span class="green" style="font-size:0.85rem; margin-left:12px;">9/9 passed</span>
+            </h2>
+          </div>
+          <div class="section-desc">Tracks where the user is looking (center / left / right / up / down) from iris landmarks. Tests inject synthetic landmark arrays at known horizontal/vertical ratios and confirm the classifier agrees. Window-fill tests check that 'focused' and 'distracted' labels need enough history.</div>
+          
+          <div class="tbl-wrap"><table><thead><tr><th>Test Case</th><th>Inputs</th><th>Expected</th><th>Actual</th><th>Confidence</th><th>Status</th><th>Note</th></tr></thead><tbody><tr><td>Gaze direction: iris perfectly centred</td><td>h=0.00, v=0.00</td><td class="expected">center</td><td class="actual-pass">center</td><td class="conf">—</td><td class="pass">✓ PASS</td><td class="note">detected h=0.000 v=0.000</td></tr><tr><td>Gaze direction: iris far right</td><td>h=0.80, v=0.00</td><td class="expected">right</td><td class="actual-pass">right</td><td class="conf">—</td><td class="pass">✓ PASS</td><td class="note">detected h=0.800 v=0.000</td></tr><tr><td>Gaze direction: iris far left</td><td>h=-0.80, v=0.00</td><td class="expected">left</td><td class="actual-pass">left</td><td class="conf">—</td><td class="pass">✓ PASS</td><td class="note">detected h=-0.800 v=0.000</td></tr><tr><td>Gaze direction: iris looking down</td><td>h=0.00, v=0.70</td><td class="expected">down</td><td class="actual-pass">down</td><td class="conf">—</td><td class="pass">✓ PASS</td><td class="note">detected h=0.000 v=0.700</td></tr><tr><td>Gaze direction: iris looking up</td><td>h=0.00, v=-0.70</td><td class="expected">up</td><td class="actual-pass">up</td><td class="conf">—</td><td class="pass">✓ PASS</td><td class="note">detected h=0.000 v=-0.700</td></tr><tr><td>Gaze direction: within ±0.2 threshold</td><td>h=0.15, v=0.05</td><td class="expected">center</td><td class="actual-pass">center</td><td class="conf">—</td><td class="pass">✓ PASS</td><td class="note">detected h=0.150 v=0.050</td></tr><tr><td>15 centred frames -&gt; focused</td><td>h=0.0, v=0.0 × 15 frames (window filled)</td><td class="expected">focused</td><td class="actual-pass">focused</td><td class="conf">1.000</td><td class="pass">✓ PASS</td><td class="note">dwell satisfied, centre_ratio=1.0</td></tr><tr><td>15 far-right frames -&gt; distracted</td><td>h=0.8, v=0.0 × 15 frames (window filled)</td><td class="expected">distracted</td><td class="actual-pass">distracted</td><td class="conf">1.000</td><td class="pass">✓ PASS</td><td class="note">centre_ratio=0.0, dwell satisfied</td></tr><tr><td>1 frame only -&gt; unknown (insufficient history)</td><td>1 frame, window=15</td><td class="expected">unknown</td><td class="actual-pass">unknown</td><td class="conf">0.000</td><td class="pass">✓ PASS</td><td class="note">window not filled yet</td></tr></tbody></table></div>
+        </div>
+        
+        <div class="section">
+          <div class="section-header">
+            <h2>MediaPipePostureDetector
+              <span class="green" style="font-size:0.85rem; margin-left:12px;">8/8 passed</span>
+            </h2>
+          </div>
+          <div class="section-desc">Classifies posture as upright / slouched / leaning from shoulder angle and head tilt. Tests pass PostureData objects with known angles directly to classify() — no pose estimation runs.</div>
+          
+          <div class="tbl-wrap"><table><thead><tr><th>Test Case</th><th>Inputs</th><th>Expected</th><th>Actual</th><th>Confidence</th><th>Status</th><th>Note</th></tr></thead><tbody><tr><td>shoulder=2.0°, head=5.0°, slouch=False</td><td>shoulder_angle=2.0, head_tilt=5.0, is_slouching=False</td><td class="expected">upright</td><td class="actual-pass">upright</td><td class="conf">0.875</td><td class="pass">✓ PASS</td><td class="note">minimal angles, no slouch flag</td></tr><tr><td>shoulder=5.0°, head=10.0°, slouch=False</td><td>shoulder_angle=5.0, head_tilt=10.0, is_slouching=False</td><td class="expected">upright</td><td class="actual-pass">upright</td><td class="conf">0.719</td><td class="pass">✓ PASS</td><td class="note">below all thresholds</td></tr><tr><td>shoulder=20.0°, head=5.0°, slouch=True</td><td>shoulder_angle=20.0, head_tilt=5.0, is_slouching=True</td><td class="expected">slouched</td><td class="actual-pass">slouched</td><td class="conf">0.950</td><td class="pass">✓ PASS</td><td class="note">shoulder angle &gt; 8° with slouch flag</td></tr><tr><td>shoulder=9.0°, head=5.0°, slouch=True</td><td>shoulder_angle=9.0, head_tilt=5.0, is_slouching=True</td><td class="expected">slouched</td><td class="actual-pass">slouched</td><td class="conf">0.583</td><td class="pass">✓ PASS</td><td class="note">is_slouching=True drives classification</td></tr><tr><td>shoulder=3.0°, head=25.0°, slouch=False</td><td>shoulder_angle=3.0, head_tilt=25.0, is_slouching=False</td><td class="expected">leaning</td><td class="actual-pass">leaning</td><td class="conf">0.675</td><td class="pass">✓ PASS</td><td class="note">head tilt &gt; 20° while not slouching</td></tr><tr><td>shoulder=3.0°, head=45.0°, slouch=False</td><td>shoulder_angle=3.0, head_tilt=45.0, is_slouching=False</td><td class="expected">leaning</td><td class="actual-pass">leaning</td><td class="conf">1.000</td><td class="pass">✓ PASS</td><td class="note">extreme head tilt</td></tr><tr><td>shoulder=7.0°, head=19.0°, slouch=False</td><td>shoulder_angle=7.0, head_tilt=19.0, is_slouching=False</td><td class="expected">upright</td><td class="actual-pass">upright</td><td class="conf">0.544</td><td class="pass">✓ PASS</td><td class="note">both just below thresholds</td></tr><tr><td>shoulder=8.1°, head=5.0°, slouch=True</td><td>shoulder_angle=8.1, head_tilt=5.0, is_slouching=True</td><td class="expected">slouched</td><td class="actual-pass">slouched</td><td class="conf">0.553</td><td class="pass">✓ PASS</td><td class="note">just over slouch angle threshold</td></tr></tbody></table></div>
+        </div>
+        
+        <div class="section">
+          <div class="section-header">
+            <h2>SpeechToneClassifier (heuristic)
+              <span class="green" style="font-size:0.85rem; margin-left:12px;">10/10 passed</span>
+            </h2>
+          </div>
+          <div class="section-desc">Labels speech tone as silent / monotone / calm / stressed from raw audio samples. Tests generate numpy sine waves and noise bursts with known RMS and zero-crossing rates, then check the heuristic rules produce the expected label.</div>
+          
+          <div class="tbl-wrap"><table><thead><tr><th>Test Case</th><th>Inputs</th><th>Expected</th><th>Actual</th><th>Confidence</th><th>Status</th><th>Note</th></tr></thead><tbody><tr><td>Near-silence (RMS≈0) -&gt; silent</td><td>samples=16000, RMS=0.0000, peak=0.0000</td><td class="expected">silent</td><td class="actual-pass">silent</td><td class="conf">1.000</td><td class="pass">✓ PASS</td><td class="note">all zeros, RMS &lt; 0.001</td></tr><tr><td>Very quiet sine -&gt; silent</td><td>samples=16000, RMS=0.0004, peak=0.0005</td><td class="expected">silent</td><td class="actual-pass">silent</td><td class="conf">1.000</td><td class="pass">✓ PASS</td><td class="note">amplitude below silence threshold</td></tr><tr><td>Loud high-ZCR noise -&gt; stressed</td><td>samples=16000, RMS=0.3512, peak=1.5362</td><td class="expected">stressed</td><td class="actual-pass">stressed</td><td class="conf">0.950</td><td class="pass">✓ PASS</td><td class="note">high RMS + high zero-crossing rate</td></tr><tr><td>High amplitude burst -&gt; stressed</td><td>samples=16000, RMS=0.1061, peak=0.1500</td><td class="expected">stressed</td><td class="actual-pass">stressed</td><td class="conf">0.829</td><td class="pass">✓ PASS</td><td class="note">RMS &gt; 0.09 threshold</td></tr><tr><td>Loud clipped noise -&gt; stressed</td><td>samples=16000, RMS=0.5017, peak=2.1946</td><td class="expected">stressed</td><td class="actual-pass">stressed</td><td class="conf">0.950</td><td class="pass">✓ PASS</td><td class="note">peak &gt; 0.72 threshold</td></tr><tr><td>Low-energy flat tone -&gt; monotone</td><td>samples=32000, RMS=0.0177, peak=0.0250</td><td class="expected">monotone</td><td class="actual-pass">monotone</td><td class="conf">0.796</td><td class="pass">✓ PASS</td><td class="note">low variation, low ZCR</td></tr><tr><td>700 Hz sine -&gt; calm</td><td>samples=16000, RMS=0.0318, peak=0.0450</td><td class="expected">calm</td><td class="actual-pass">calm</td><td class="conf">0.688</td><td class="pass">✓ PASS</td><td class="note">ZCR≈0.09 (&gt;0.08 threshold), RMS&lt;0.09 -&gt; not stressed, not monotone</td></tr><tr><td>800 Hz mid-amplitude sine -&gt; calm</td><td>samples=16000, RMS=0.0389, peak=0.0550</td><td class="expected">calm</td><td class="actual-pass">calm</td><td class="conf">0.681</td><td class="pass">✓ PASS</td><td class="note">ZCR≈0.10, RMS≈0.039 -&gt; calm band</td></tr><tr><td>_is_silent: all zeros -&gt; silent</td><td>array of 100 samples</td><td class="expected">True</td><td class="actual-pass">True</td><td class="conf">—</td><td class="pass">✓ PASS</td><td class="note">internal silence helper</td></tr><tr><td>_is_silent: constant 0.5 -&gt; not silent</td><td>array of 100 samples</td><td class="expected">False</td><td class="actual-pass">False</td><td class="conf">—</td><td class="pass">✓ PASS</td><td class="note">internal silence helper</td></tr></tbody></table></div>
+        </div>
+        
+        <div class="section">
+          <div class="section-header">
+            <h2>LLMStateTracker (parse logic)
+              <span class="green" style="font-size:0.85rem; margin-left:12px;">12/12 passed</span>
+            </h2>
+          </div>
+          <div class="section-desc">Parses the JSON response from Claude and decides whether a cognitive state transition occurred. Tests pass raw JSON strings (valid, malformed, missing fields) to _parse_response() directly — no API call is made.</div>
+          
+          <div class="tbl-wrap"><table><thead><tr><th>Test Case</th><th>Inputs</th><th>Expected</th><th>Actual</th><th>Confidence</th><th>Status</th><th>Note</th></tr></thead><tbody><tr><td>No transition -&gt; returns None</td><td>raw JSON: {"emotional_summary": "user looks calm", "transition": false, "new_sta…</td><td class="expected">transition=False</td><td class="actual-pass">transition=False, state=none</td><td class="conf">—</td><td class="pass">✓ PASS</td><td class="note">transition=false path</td></tr><tr><td>Transition to fatigued</td><td>raw JSON: {"emotional_summary": "user looks tired", "transition": true, "new_sta…</td><td class="expected">transition=True, state=fatigued</td><td class="actual-pass">transition=True, state=fatigued</td><td class="conf">—</td><td class="pass">✓ PASS</td><td class="note">valid transition</td></tr><tr><td>Transition to stressed</td><td>raw JSON: {"emotional_summary": "stressed out", "transition": true, "new_state":…</td><td class="expected">transition=True, state=stressed</td><td class="actual-pass">transition=True, state=stressed</td><td class="conf">—</td><td class="pass">✓ PASS</td><td class="note">valid transition</td></tr><tr><td>Transition to distracted</td><td>raw JSON: {"emotional_summary": "looking away", "transition": true, "new_state":…</td><td class="expected">transition=True, state=distracted</td><td class="actual-pass">transition=True, state=distracted</td><td class="conf">—</td><td class="pass">✓ PASS</td><td class="note">valid transition</td></tr><tr><td>Malformed JSON -&gt; returns None</td><td>raw JSON: not valid json {{{</td><td class="expected">transition=False</td><td class="actual-pass">transition=False, state=none</td><td class="conf">—</td><td class="pass">✓ PASS</td><td class="note">JSON decode error handled gracefully</td></tr><tr><td>Unknown state label -&gt; returns None</td><td>raw JSON: {"emotional_summary": "odd", "transition": true, "new_state": "confuse…</td><td class="expected">transition=False</td><td class="actual-pass">transition=False, state=none</td><td class="conf">—</td><td class="pass">✓ PASS</td><td class="note">'confused' not in STATE_FROM_STRING</td></tr><tr><td>Missing emotional_summary -&gt; still works</td><td>raw JSON: {"transition": true, "new_state": "focused", "confidence": 0.7, "reaso…</td><td class="expected">transition=True, state=focused</td><td class="actual-pass">transition=True, state=focused</td><td class="conf">—</td><td class="pass">✓ PASS</td><td class="note">summary is optional</td></tr><tr><td>Empty JSON -&gt; no transition</td><td>raw JSON: {}</td><td class="expected">transition=False</td><td class="actual-pass">transition=False, state=none</td><td class="conf">—</td><td class="pass">✓ PASS</td><td class="note">all fields missing, transition defaults to false</td></tr><tr><td>_STATE_FROM_STRING has 'focused'</td><td>key='focused'</td><td class="expected">present</td><td class="actual-pass">present</td><td class="conf">—</td><td class="pass">✓ PASS</td><td class="note">all cognitive labels must be mappable</td></tr><tr><td>_STATE_FROM_STRING has 'fatigued'</td><td>key='fatigued'</td><td class="expected">present</td><td class="actual-pass">present</td><td class="conf">—</td><td class="pass">✓ PASS</td><td class="note">all cognitive labels must be mappable</td></tr><tr><td>_STATE_FROM_STRING has 'stressed'</td><td>key='stressed'</td><td class="expected">present</td><td class="actual-pass">present</td><td class="conf">—</td><td class="pass">✓ PASS</td><td class="note">all cognitive labels must be mappable</td></tr><tr><td>_STATE_FROM_STRING has 'distracted'</td><td>key='distracted'</td><td class="expected">present</td><td class="actual-pass">present</td><td class="conf">—</td><td class="pass">✓ PASS</td><td class="note">all cognitive labels must be mappable</td></tr></tbody></table></div>
+        </div>
+        
+        <div class="section">
+          <div class="section-header">
+            <h2>StateTracker (weighted vote)
+              <span class="green" style="font-size:0.85rem; margin-left:12px;">30/30 passed</span>
+            </h2>
+          </div>
+          <div class="section-desc">Combines classifier signals via weighted voting to produce a single CognitiveStateLabel. Tests call _weighted_vote() with lists of ClassifierResult objects and verify the winning label. Also checks that every known signal label is present in _LABEL_TO_STATE.</div>
+          
+          <div class="tbl-wrap"><table><thead><tr><th>Test Case</th><th>Inputs</th><th>Expected</th><th>Actual</th><th>Confidence</th><th>Status</th><th>Note</th></tr></thead><tbody><tr><td>_weighted_vote: empty signals -&gt; unknown</td><td>[]</td><td class="expected">unknown</td><td class="actual-pass">unknown</td><td class="conf">0.000</td><td class="pass">✓ PASS</td><td class="note">empty signals -&gt; unknown</td></tr><tr><td>_weighted_vote: neutral -&gt; focused</td><td>neutral(0.9)</td><td class="expected">focused</td><td class="actual-pass">focused</td><td class="conf">1.000</td><td class="pass">✓ PASS</td><td class="note">neutral -&gt; focused</td></tr><tr><td>_weighted_vote: calm -&gt; focused</td><td>calm(0.9)</td><td class="expected">focused</td><td class="actual-pass">focused</td><td class="conf">1.000</td><td class="pass">✓ PASS</td><td class="note">calm -&gt; focused</td></tr><tr><td>_weighted_vote: upright -&gt; focused</td><td>upright(0.9)</td><td class="expected">focused</td><td class="actual-pass">focused</td><td class="conf">1.000</td><td class="pass">✓ PASS</td><td class="note">upright -&gt; focused</td></tr><tr><td>_weighted_vote: tense -&gt; stressed</td><td>tense(0.9)</td><td class="expected">stressed</td><td class="actual-pass">stressed</td><td class="conf">1.000</td><td class="pass">✓ PASS</td><td class="note">tense -&gt; stressed</td></tr><tr><td>_weighted_vote: stressed -&gt; stressed</td><td>stressed(0.9)</td><td class="expected">stressed</td><td class="actual-pass">stressed</td><td class="conf">1.000</td><td class="pass">✓ PASS</td><td class="note">stressed -&gt; stressed</td></tr><tr><td>_weighted_vote: fatigued -&gt; fatigued</td><td>fatigued(0.9)</td><td class="expected">fatigued</td><td class="actual-pass">fatigued</td><td class="conf">1.000</td><td class="pass">✓ PASS</td><td class="note">fatigued -&gt; fatigued</td></tr><tr><td>_weighted_vote: slouched -&gt; fatigued</td><td>slouched(0.9)</td><td class="expected">fatigued</td><td class="actual-pass">fatigued</td><td class="conf">1.000</td><td class="pass">✓ PASS</td><td class="note">slouched -&gt; fatigued</td></tr><tr><td>_weighted_vote: monotone -&gt; fatigued</td><td>monotone(0.9)</td><td class="expected">fatigued</td><td class="actual-pass">fatigued</td><td class="conf">1.000</td><td class="pass">✓ PASS</td><td class="note">monotone -&gt; fatigued</td></tr><tr><td>_weighted_vote: left gaze -&gt; distracted</td><td>left(0.9)</td><td class="expected">distracted</td><td class="actual-pass">distracted</td><td class="conf">1.000</td><td class="pass">✓ PASS</td><td class="note">left gaze -&gt; distracted</td></tr><tr><td>_weighted_vote: majority stressed wins</td><td>stressed(0.9), tense(0.8), neutral(0.2)</td><td class="expected">stressed</td><td class="actual-pass">stressed</td><td class="conf">0.895</td><td class="pass">✓ PASS</td><td class="note">majority stressed wins</td></tr><tr><td>_weighted_vote: unanimous focused</td><td>calm(0.7), upright(0.8), normal(0.9)</td><td class="expected">focused</td><td class="actual-pass">focused</td><td class="conf">1.000</td><td class="pass">✓ PASS</td><td class="note">unanimous focused</td></tr><tr><td>_LABEL_TO_STATE maps 'fatigued'</td><td>key='fatigued'</td><td class="expected">mapped</td><td class="actual-pass">mapped</td><td class="conf">—</td><td class="pass">✓ PASS</td><td class="note">all signal labels must resolve to a cognitive state</td></tr><tr><td>_LABEL_TO_STATE maps 'elevated'</td><td>key='elevated'</td><td class="expected">mapped</td><td class="actual-pass">mapped</td><td class="conf">—</td><td class="pass">✓ PASS</td><td class="note">all signal labels must resolve to a cognitive state</td></tr><tr><td>_LABEL_TO_STATE maps 'slouching'</td><td>key='slouching'</td><td class="expected">mapped</td><td class="actual-pass">mapped</td><td class="conf">—</td><td class="pass">✓ PASS</td><td class="note">all signal labels must resolve to a cognitive state</td></tr><tr><td>_LABEL_TO_STATE maps 'slouched'</td><td>key='slouched'</td><td class="expected">mapped</td><td class="actual-pass">mapped</td><td class="conf">—</td><td class="pass">✓ PASS</td><td class="note">all signal labels must resolve to a cognitive state</td></tr><tr><td>_LABEL_TO_STATE maps 'leaning'</td><td>key='leaning'</td><td class="expected">mapped</td><td class="actual-pass">mapped</td><td class="conf">—</td><td class="pass">✓ PASS</td><td class="note">all signal labels must resolve to a cognitive state</td></tr><tr><td>_LABEL_TO_STATE maps 'monotone'</td><td>key='monotone'</td><td class="expected">mapped</td><td class="actual-pass">mapped</td><td class="conf">—</td><td class="pass">✓ PASS</td><td class="note">all signal labels must resolve to a cognitive state</td></tr><tr><td>_LABEL_TO_STATE maps 'stressed'</td><td>key='stressed'</td><td class="expected">mapped</td><td class="actual-pass">mapped</td><td class="conf">—</td><td class="pass">✓ PASS</td><td class="note">all signal labels must resolve to a cognitive state</td></tr><tr><td>_LABEL_TO_STATE maps 'tense'</td><td>key='tense'</td><td class="expected">mapped</td><td class="actual-pass">mapped</td><td class="conf">—</td><td class="pass">✓ PASS</td><td class="note">all signal labels must resolve to a cognitive state</td></tr><tr><td>_LABEL_TO_STATE maps 'distracted'</td><td>key='distracted'</td><td class="expected">mapped</td><td class="actual-pass">mapped</td><td class="conf">—</td><td class="pass">✓ PASS</td><td class="note">all signal labels must resolve to a cognitive state</td></tr><tr><td>_LABEL_TO_STATE maps 'left'</td><td>key='left'</td><td class="expected">mapped</td><td class="actual-pass">mapped</td><td class="conf">—</td><td class="pass">✓ PASS</td><td class="note">all signal labels must resolve to a cognitive state</td></tr><tr><td>_LABEL_TO_STATE maps 'right'</td><td>key='right'</td><td class="expected">mapped</td><td class="actual-pass">mapped</td><td class="conf">—</td><td class="pass">✓ PASS</td><td class="note">all signal labels must resolve to a cognitive state</td></tr><tr><td>_LABEL_TO_STATE maps 'focused'</td><td>key='focused'</td><td class="expected">mapped</td><td class="actual-pass">mapped</td><td class="conf">—</td><td class="pass">✓ PASS</td><td class="note">all signal labels must resolve to a cognitive state</td></tr><tr><td>_LABEL_TO_STATE maps 'upright'</td><td>key='upright'</td><td class="expected">mapped</td><td class="actual-pass">mapped</td><td class="conf">—</td><td class="pass">✓ PASS</td><td class="note">all signal labels must resolve to a cognitive state</td></tr><tr><td>_LABEL_TO_STATE maps 'normal'</td><td>key='normal'</td><td class="expected">mapped</td><td class="actual-pass">mapped</td><td class="conf">—</td><td class="pass">✓ PASS</td><td class="note">all signal labels must resolve to a cognitive state</td></tr><tr><td>_LABEL_TO_STATE maps 'center'</td><td>key='center'</td><td class="expected">mapped</td><td class="actual-pass">mapped</td><td class="conf">—</td><td class="pass">✓ PASS</td><td class="note">all signal labels must resolve to a cognitive state</td></tr><tr><td>_LABEL_TO_STATE maps 'calm'</td><td>key='calm'</td><td class="expected">mapped</td><td class="actual-pass">mapped</td><td class="conf">—</td><td class="pass">✓ PASS</td><td class="note">all signal labels must resolve to a cognitive state</td></tr><tr><td>_LABEL_TO_STATE maps 'relaxed'</td><td>key='relaxed'</td><td class="expected">mapped</td><td class="actual-pass">mapped</td><td class="conf">—</td><td class="pass">✓ PASS</td><td class="note">all signal labels must resolve to a cognitive state</td></tr><tr><td>_LABEL_TO_STATE maps 'neutral'</td><td>key='neutral'</td><td class="expected">mapped</td><td class="actual-pass">mapped</td><td class="conf">—</td><td class="pass">✓ PASS</td><td class="note">all signal labels must resolve to a cognitive state</td></tr></tbody></table></div>
+        </div>
+        
+</body>
+</html>
