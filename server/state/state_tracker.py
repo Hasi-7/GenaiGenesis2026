@@ -320,14 +320,8 @@ class LLMStateTracker:
         self._stop_event.set()
         if self._detection_thread is not None:
             self._detection_thread.join(timeout=10.0)
-            if self._detection_thread.is_alive():
-                logger.warning(
-                    "LLMStateTracker: background thread did not stop "
-                    "within 10s (likely blocked on LLM call)"
-                )
-            else:
-                logger.info("LLMStateTracker: background detection thread stopped")
             self._detection_thread = None
+            logger.info("LLMStateTracker: background detection thread stopped")
 
     # -- Pipeline-facing methods (called from main thread) --------------------
 
@@ -345,14 +339,7 @@ class LLMStateTracker:
         with self._lock:
             result = self._pending_transition
             self._pending_transition = None
-        if result is not None:
-            logger.debug(
-                "LLMStateTracker: pipeline consumed pending transition "
-                "%s -> %s",
-                result.previous_state.label.value,
-                result.new_state.label.value,
-            )
-        return result
+            return result
 
     def get_recent_analyses(self, seconds: float = 5.0) -> list[FrameAnalysis]:
         with self._lock:
@@ -375,15 +362,9 @@ class LLMStateTracker:
         # Under lock: check guards, snapshot state
         with self._lock:
             if len(self._frames) == 0:
-                logger.debug("LLMStateTracker: background skip — no frames")
                 return
 
             if now - self._last_transition_time < self._cooldown_seconds:
-                remaining = self._cooldown_seconds - (now - self._last_transition_time)
-                logger.debug(
-                    "LLMStateTracker: background skip — cooldown (%.1fs remaining)",
-                    remaining,
-                )
                 return
 
             if now - self._last_check_time < self._check_interval_seconds:
