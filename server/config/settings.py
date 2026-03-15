@@ -13,7 +13,7 @@ class CognitiveSenseSettings(BaseSettings):
     cognitivesense_server_port: int | None = None
     state_tracker_type: str = "rule"
     openai_api_key: str | None = None
-    cognitivesense_log_level: str = "INFO"
+    cognitivesense_log_level: str = "DEBUG"
     speech_tone_backend: str = "transformer" # heuristic or transformer
 
     # Performance
