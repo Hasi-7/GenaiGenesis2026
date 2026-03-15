@@ -13,6 +13,7 @@ class CognitiveSenseSettings(BaseSettings):
     )
 
     cognitivesense_server_port: int | None = None
+    cognitivesense_server_host: str | None = None
     state_tracker_type: str = "llm" # rule | llm
     OPENAI_API_KEY: str | None = None
     cognitivesense_log_level: str = "DEBUG"
