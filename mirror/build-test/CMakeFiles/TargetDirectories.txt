@@ -1,5 +1,6 @@
 /mnt/c/Personal/VSCode/GenaiGenesis2026/mirror/build-test/CMakeFiles/mirror_capture.dir
 /mnt/c/Personal/VSCode/GenaiGenesis2026/mirror/build-test/CMakeFiles/mirror_capture_smoke.dir
 /mnt/c/Personal/VSCode/GenaiGenesis2026/mirror/build-test/CMakeFiles/mirror_frame_streamer.dir
+/mnt/c/Personal/VSCode/GenaiGenesis2026/mirror/build-test/CMakeFiles/mirror_lcd_smoke.dir
 /mnt/c/Personal/VSCode/GenaiGenesis2026/mirror/build-test/CMakeFiles/edit_cache.dir
 /mnt/c/Personal/VSCode/GenaiGenesis2026/mirror/build-test/CMakeFiles/rebuild_cache.dir

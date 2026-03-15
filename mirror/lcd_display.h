@@ -57,6 +57,11 @@ void mirror_lcd_set_state(
     const char *detail_text
 );
 void mirror_lcd_set_feedback(MirrorLcdDisplay *display, const char *text);
+void mirror_lcd_set_text(
+    MirrorLcdDisplay *display,
+    const char *line_1,
+    const char *line_2
+);
 void mirror_lcd_refresh(MirrorLcdDisplay *display);
 
 #endif

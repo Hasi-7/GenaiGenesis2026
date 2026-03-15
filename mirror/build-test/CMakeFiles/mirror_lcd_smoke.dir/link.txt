@@ -1,0 +1,1 @@
+/usr/bin/cc CMakeFiles/mirror_lcd_smoke.dir/lcd_display_smoke.c.o CMakeFiles/mirror_lcd_smoke.dir/lcd_display.c.o -o mirror_lcd_smoke  /usr/lib/x86_64-linux-gnu/libgpiod.so 

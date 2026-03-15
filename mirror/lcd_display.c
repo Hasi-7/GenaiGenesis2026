@@ -384,17 +384,17 @@ static bool initialize_hardware(MirrorLcdDisplay *display) {
         return false;
     }
 
-    usleep(50000U);
+    usleep(100000U);
     set_line_value(display->rs_line, 0);
     set_line_value(display->e_line, 0);
     write_nibble(display, 0x03U);
-    usleep(4500U);
+    usleep(5000U);
     write_nibble(display, 0x03U);
-    usleep(4500U);
+    usleep(5000U);
     write_nibble(display, 0x03U);
-    usleep(150U);
+    usleep(500U);
     write_nibble(display, 0x02U);
-    usleep(150U);
+    usleep(500U);
     write_command(display, 0x28U);
     write_command(display, 0x0CU);
     write_command(display, 0x06U);
@@ -583,6 +583,20 @@ void mirror_lcd_set_feedback(MirrorLcdDisplay *display, const char *text) {
     display->feedback_active_until_ns =
         now_ns() + (uint64_t) display->feedback_page_count * 2U * LCD_PAGE_INTERVAL_NS;
     display->next_feedback_page_at_ns = now_ns() + LCD_PAGE_INTERVAL_NS;
+}
+
+void mirror_lcd_set_text(
+    MirrorLcdDisplay *display,
+    const char *line_1,
+    const char *line_2
+) {
+    if (display == NULL || !display->enabled) {
+        return;
+    }
+
+    cleanup_feedback_pages(display);
+    copy_lcd_line(display->state_line_1, sizeof(display->state_line_1), line_1);
+    copy_lcd_line(display->state_line_2, sizeof(display->state_line_2), line_2);
 }
 
 void mirror_lcd_refresh(MirrorLcdDisplay *display) {

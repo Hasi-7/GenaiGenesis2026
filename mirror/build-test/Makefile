@@ -155,6 +155,19 @@ mirror_frame_streamer/fast:
 	$(MAKE) $(MAKESILENT) -f CMakeFiles/mirror_frame_streamer.dir/build.make CMakeFiles/mirror_frame_streamer.dir/build
 .PHONY : mirror_frame_streamer/fast
 
+#=============================================================================
+# Target rules for targets named mirror_lcd_smoke
+
+# Build rule for target.
+mirror_lcd_smoke: cmake_check_build_system
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/Makefile2 mirror_lcd_smoke
+.PHONY : mirror_lcd_smoke
+
+# fast build rule for target.
+mirror_lcd_smoke/fast:
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/mirror_lcd_smoke.dir/build.make CMakeFiles/mirror_lcd_smoke.dir/build
+.PHONY : mirror_lcd_smoke/fast
+
 camera_capture.o: camera_capture.c.o
 .PHONY : camera_capture.o
 
@@ -233,6 +246,7 @@ lcd_display.o: lcd_display.c.o
 # target to build an object file
 lcd_display.c.o:
 	$(MAKE) $(MAKESILENT) -f CMakeFiles/mirror_frame_streamer.dir/build.make CMakeFiles/mirror_frame_streamer.dir/lcd_display.c.o
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/mirror_lcd_smoke.dir/build.make CMakeFiles/mirror_lcd_smoke.dir/lcd_display.c.o
 .PHONY : lcd_display.c.o
 
 lcd_display.i: lcd_display.c.i
@@ -241,6 +255,7 @@ lcd_display.i: lcd_display.c.i
 # target to preprocess a source file
 lcd_display.c.i:
 	$(MAKE) $(MAKESILENT) -f CMakeFiles/mirror_frame_streamer.dir/build.make CMakeFiles/mirror_frame_streamer.dir/lcd_display.c.i
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/mirror_lcd_smoke.dir/build.make CMakeFiles/mirror_lcd_smoke.dir/lcd_display.c.i
 .PHONY : lcd_display.c.i
 
 lcd_display.s: lcd_display.c.s
@@ -249,7 +264,32 @@ lcd_display.s: lcd_display.c.s
 # target to generate assembly for a file
 lcd_display.c.s:
 	$(MAKE) $(MAKESILENT) -f CMakeFiles/mirror_frame_streamer.dir/build.make CMakeFiles/mirror_frame_streamer.dir/lcd_display.c.s
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/mirror_lcd_smoke.dir/build.make CMakeFiles/mirror_lcd_smoke.dir/lcd_display.c.s
 .PHONY : lcd_display.c.s
+
+lcd_display_smoke.o: lcd_display_smoke.c.o
+.PHONY : lcd_display_smoke.o
+
+# target to build an object file
+lcd_display_smoke.c.o:
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/mirror_lcd_smoke.dir/build.make CMakeFiles/mirror_lcd_smoke.dir/lcd_display_smoke.c.o
+.PHONY : lcd_display_smoke.c.o
+
+lcd_display_smoke.i: lcd_display_smoke.c.i
+.PHONY : lcd_display_smoke.i
+
+# target to preprocess a source file
+lcd_display_smoke.c.i:
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/mirror_lcd_smoke.dir/build.make CMakeFiles/mirror_lcd_smoke.dir/lcd_display_smoke.c.i
+.PHONY : lcd_display_smoke.c.i
+
+lcd_display_smoke.s: lcd_display_smoke.c.s
+.PHONY : lcd_display_smoke.s
+
+# target to generate assembly for a file
+lcd_display_smoke.c.s:
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/mirror_lcd_smoke.dir/build.make CMakeFiles/mirror_lcd_smoke.dir/lcd_display_smoke.c.s
+.PHONY : lcd_display_smoke.c.s
 
 # Help Target
 help:
@@ -262,6 +302,7 @@ help:
 	@echo "... mirror_capture"
 	@echo "... mirror_capture_smoke"
 	@echo "... mirror_frame_streamer"
+	@echo "... mirror_lcd_smoke"
 	@echo "... camera_capture.o"
 	@echo "... camera_capture.i"
 	@echo "... camera_capture.s"
@@ -274,6 +315,9 @@ help:
 	@echo "... lcd_display.o"
 	@echo "... lcd_display.i"
 	@echo "... lcd_display.s"
+	@echo "... lcd_display_smoke.o"
+	@echo "... lcd_display_smoke.i"
+	@echo "... lcd_display_smoke.s"
 .PHONY : help
 
 

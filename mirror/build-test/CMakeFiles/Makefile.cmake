@@ -45,4 +45,5 @@ set(CMAKE_DEPEND_INFO_FILES
   "CMakeFiles/mirror_capture.dir/DependInfo.cmake"
   "CMakeFiles/mirror_capture_smoke.dir/DependInfo.cmake"
   "CMakeFiles/mirror_frame_streamer.dir/DependInfo.cmake"
+  "CMakeFiles/mirror_lcd_smoke.dir/DependInfo.cmake"
   )
