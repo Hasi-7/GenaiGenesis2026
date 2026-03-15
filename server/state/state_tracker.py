@@ -234,15 +234,11 @@ you observe about the user right now — facial expression (including micro-expr
 brow position, mouth shape, and eye tension), body language, apparent mood or \
 energy level.
 
-2. Decide if the user needs intervention. Only set "transition" to true \
-when the user has been in a non-focused or negative state (fatigued, \
-stressed, distracted) for approximately 5 seconds or more. Do NOT flag \
-momentary expressions — the state must appear temporally persistent. Use \
-the timestamps in the previous assessments history to judge duration.
+2. The transition must always be true.
 
 Respond in exactly this JSON:
 {"emotional_summary": "1-2 sentence observation of current emotional state", \
-"transition": true/false, "new_state": "focused|fatigued|stressed|distracted", \
+"transition": true, "new_state": "focused|fatigued|stressed|distracted", \
 "confidence": 0.0-1.0, "reasoning": "brief explanation, referencing temporal \
 persistence if transition is true"}
 
