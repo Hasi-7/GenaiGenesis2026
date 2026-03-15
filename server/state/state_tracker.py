@@ -6,6 +6,8 @@ import logging
 import time
 from collections import deque
 from collections.abc import Sequence
+from dataclasses import dataclass
+from datetime import datetime
 from typing import TYPE_CHECKING, Protocol
 
 from models.types import (
@@ -227,25 +229,49 @@ class StateTracker:
             self._frames.popleft()
 
 
+@dataclass(slots=True)
+class _EmotionalSnapshot:
+    """A timestamped emotional state summary produced by the LLM."""
+
+    timestamp: float
+    iso_time: str
+    summary: str
+    state: str
+    confidence: float
+
+
 _LLM_TRACKER_SYSTEM_PROMPT = """\
 You are a cognitive state analyst. You receive a webcam image of the user \
-alongside sensor data. Your job is to determine if the user's cognitive \
-state has meaningfully changed or if they need assistance.
+alongside sensor data and a history of your previous emotional assessments \
+with timestamps.
 
-Analyze the image and data, then respond in exactly this JSON format:
-{"transition": true/false, "new_state": "focused|fatigued|stressed|"
-"distracted", "confidence": 0.0-1.0, "reasoning": "brief explanation"}
+Your tasks:
+1. Produce a brief (1-2 sentence) emotional state summary describing what \
+you observe about the user right now — facial expression, body language, \
+apparent mood or energy level.
+
+2. Decide if the user needs intervention. Only set "transition" to true \
+when the user has been in a non-focused or negative state (fatigued, \
+stressed, distracted) for approximately 5 seconds or more. Do NOT flag \
+momentary expressions — the state must appear temporally persistent. Use \
+the timestamps in the previous assessments history to judge duration.
+
+Respond in exactly this JSON:
+{"emotional_summary": "1-2 sentence observation of current emotional state", \
+"transition": true/false, "new_state": "focused|fatigued|stressed|distracted", \
+"confidence": 0.0-1.0, "reasoning": "brief explanation, referencing temporal \
+persistence if transition is true"}
 
 Consider:
 - Visual cues: facial expression, posture, eye openness, tension
 - Sensor signals provided
-- Whether the user appears stuck or has been in the same state too long
+- Previous emotional assessments and their timestamps for temporal context
 - Whether they show signs of stress or fatigue not captured by sensors\
 """
 
 _LLM_TRACKER_MODEL = "gpt-4.1-mini"
 _LLM_TRACKER_COOLDOWN = 10.0
-_LLM_TRACKER_CHECK_INTERVAL = 30.0
+_LLM_TRACKER_CHECK_INTERVAL = 5.0
 
 _STATE_FROM_STRING: dict[str, CognitiveStateLabel] = {
     "focused": CognitiveStateLabel.FOCUSED,
@@ -278,6 +304,7 @@ class LLMStateTracker:
         self._last_transition_time: float = 0.0
         self._last_check_time: float = 0.0
         self._last_state: CognitiveState | None = None
+        self._emotional_history: deque[_EmotionalSnapshot] = deque(maxlen=10)
 
     def add_frame(self, analysis: FrameAnalysis) -> None:
         self._frames.append(analysis)
@@ -303,15 +330,11 @@ class LLMStateTracker:
         if now - self._last_transition_time < self._cooldown_seconds:
             return None
 
-        # Only call the LLM periodically or when local signals shift
-        current = self.get_current_state()
-        state_changed = (
-            self._last_state is not None and current.label != self._last_state.label
-        )
-        interval_elapsed = now - self._last_check_time >= self._check_interval_seconds
-
-        if not state_changed and not interval_elapsed:
+        # Hard minimum interval between LLM calls
+        if now - self._last_check_time < self._check_interval_seconds:
             return None
+
+        current = self.get_current_state()
 
         jpeg_bytes = self._screenshot_manager.encode_jpeg()
         if not jpeg_bytes:
@@ -319,8 +342,11 @@ class LLMStateTracker:
 
         self._last_check_time = now
 
+        state_changed = (
+            self._last_state is not None and current.label != self._last_state.label
+        )
         reason = "state change" if state_changed else "interval check"
-        logger.info(
+        logger.debug(
             "LLMStateTracker: starting detection (%s), current=%s confidence=%.0f%%",
             reason,
             current.label.value,
@@ -338,7 +364,7 @@ class LLMStateTracker:
                 transition.new_state.confidence * 100,
             )
         else:
-            logger.info("LLMStateTracker: no transition detected")
+            logger.debug("LLMStateTracker: no transition detected")
         return transition
 
     def get_recent_analyses(self, seconds: float = 5.0) -> list[FrameAnalysis]:
@@ -358,8 +384,16 @@ class LLMStateTracker:
         context = self._build_context(current)
         b64 = base64.b64encode(jpeg_bytes).decode()
 
+        logger.debug(
+            "LLMStateTracker: LLM call model=%s system_prompt=%r context=%r",
+            self._model,
+            _LLM_TRACKER_SYSTEM_PROMPT,
+            context,
+        )
+
         try:
-            completion = self._client.chat.completions.create(
+            t_start = time.time()
+            stream = self._client.chat.completions.create(
                 model=self._model,
                 messages=[
                     {"role": "system", "content": _LLM_TRACKER_SYSTEM_PROMPT},
@@ -377,14 +411,44 @@ class LLMStateTracker:
                         ],
                     },
                 ],
-                max_tokens=200,
+                max_tokens=300,
                 temperature=0.3,
+                stream=True,
+                stream_options={"include_usage": True},
+            )
+
+            chunks: list[str] = []
+            ttft: float | None = None
+            usage = None
+
+            for chunk in stream:
+                if chunk.usage is not None:
+                    usage = chunk.usage
+                if chunk.choices:
+                    delta = chunk.choices[0].delta
+                    if delta and delta.content:
+                        if ttft is None:
+                            ttft = time.time() - t_start
+                        chunks.append(delta.content)
+
+            t_total = time.time() - t_start
+            raw = "".join(chunks).strip()
+            logger.debug("LLMStateTracker: LLM response raw=%r", raw)
+
+            input_tokens = usage.prompt_tokens if usage else -1
+            output_tokens = usage.completion_tokens if usage else -1
+            logger.debug(
+                "LLMStateTracker: tokens_in=%d tokens_out=%d "
+                "ttft=%.3fs latency=%.3fs",
+                input_tokens,
+                output_tokens,
+                ttft if ttft is not None else -1.0,
+                t_total,
             )
         except Exception:
             logger.exception("LLMStateTracker: OpenAI call failed")
             return None
 
-        raw = (completion.choices[0].message.content or "").strip()
         return self._parse_response(raw, current)
 
     def _build_context(self, current: CognitiveState) -> str:
@@ -416,6 +480,14 @@ class LLMStateTracker:
             ) / len(blink_frames)
             lines.append(f"Avg blink rate: {avg_bpm:.1f} bpm")
 
+        if self._emotional_history:
+            lines.append("\n--- Previous Emotional Assessments ---")
+            for snap in self._emotional_history:
+                lines.append(
+                    f"[{snap.iso_time}] ({snap.state}, "
+                    f"{snap.confidence:.0%}): {snap.summary}"
+                )
+
         return "\n".join(lines)
 
     def _parse_response(
@@ -429,16 +501,30 @@ class LLMStateTracker:
             logger.warning("LLMStateTracker: failed to parse JSON: %s", raw)
             return None
 
+        now = time.time()
+        summary = data.get("emotional_summary", "")
+        state_str = data.get("new_state", current.label.value).lower()
+        confidence = float(data.get("confidence", 0.5))
+
+        if summary:
+            snapshot = _EmotionalSnapshot(
+                timestamp=now,
+                iso_time=datetime.fromtimestamp(now).isoformat(
+                    timespec="seconds"
+                ),
+                summary=summary,
+                state=state_str,
+                confidence=confidence,
+            )
+            self._emotional_history.append(snapshot)
+            logger.debug("LLMStateTracker: emotional state: %s", summary)
+
         if not data.get("transition", False):
             return None
 
-        new_label_str = data.get("new_state", "").lower()
-        new_label = _STATE_FROM_STRING.get(new_label_str)
+        new_label = _STATE_FROM_STRING.get(state_str)
         if new_label is None:
             return None
-
-        confidence = float(data.get("confidence", 0.5))
-        now = time.time()
 
         previous = self._last_state or current
         new_state = CognitiveState(

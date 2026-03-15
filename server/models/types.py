@@ -22,6 +22,7 @@ class InputSource(Enum):
     LOCAL_CAMERA = "local_camera"
     MIRROR_TCP = "mirror_tcp"
     REMOTE_MEDIA = "remote_media"
+    REPLAY = "replay"
 
 
 @dataclass(slots=True)
@@ -192,8 +193,8 @@ class PipelineConfig:
     environment: Environment
     input_source: InputSource = InputSource.LOCAL_CAMERA
     camera_index: int = 0
-    state_tracker_type: str = "rule"  # "rule" or "llm"
     mic_enabled: bool = True
+    replay_session_dir: str = ""
     target_fps: int = 15
     remote_media_host: str = "0.0.0.0"
     remote_media_port: int = 9000
@@ -242,6 +243,15 @@ class PipelineConfig:
             renderer_enabled=False,
             remote_media_host="0.0.0.0",
             remote_media_port=9000,
+        )
+
+    @staticmethod
+    def replay(session_dir: str) -> PipelineConfig:
+        return PipelineConfig(
+            environment=Environment.DESKTOP,
+            input_source=InputSource.REPLAY,
+            replay_session_dir=session_dir,
+            mic_enabled=True,
         )
 
     @staticmethod

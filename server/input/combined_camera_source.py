@@ -29,7 +29,7 @@ class CombinedCameraSource:
 
             self._next_index = (index + 1) % source_count
             if self._active_source_name != source_name:
-                logger.info("Frame source switched to %s", source_name)
+                logger.debug("Frame source switched to %s", source_name)
                 self._active_source_name = source_name
             return frame
         return None

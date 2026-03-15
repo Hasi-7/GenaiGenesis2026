@@ -3,6 +3,7 @@ from __future__ import annotations
 import logging
 import threading
 
+from config.settings import get_settings
 from core.pipeline_controller import PipelineController
 from input.remote_media_server import RemoteClientSession
 from input.screenshot_manager import ScreenshotManager
@@ -22,16 +23,21 @@ class RemoteSessionRunner:
         config: PipelineConfig,
         tracker_type: str,
         openai_client: OpenAI | None,
+        speech_tone_backend: str = "heuristic",
     ) -> None:
         self._session = session
         self._thread: threading.Thread | None = None
 
+        settings = get_settings()
         screenshot_manager = ScreenshotManager(session.make_camera_source())
         if tracker_type == "llm" and openai_client is not None:
             state_tracker = LLMStateTracker(
                 client=openai_client,
                 screenshot_manager=screenshot_manager,
                 window_seconds=config.smoothing_window_seconds,
+                cooldown_seconds=settings.llm_state_tracker_cooldown,
+                check_interval_seconds=settings.llm_state_tracker_min_interval,
+                model=settings.llm_state_tracker_model,
             )
         else:
             state_tracker = StateTracker(
@@ -41,6 +47,7 @@ class RemoteSessionRunner:
         llm_engine = LLMEngine(
             client=openai_client,
             rate_limiter=RateLimiter(cooldown_seconds=config.llm_cooldown_seconds),
+            model=settings.llm_feedback_model,
         )
 
         self._controller = PipelineController(
@@ -50,6 +57,7 @@ class RemoteSessionRunner:
             state_tracker=state_tracker,
             mic_source=session.make_mic_source(),
             telemetry_sink=session,
+            speech_tone_backend=speech_tone_backend,
         )
 
     def start(self) -> None:
@@ -72,12 +80,12 @@ class RemoteSessionRunner:
         self._thread.join(timeout=timeout)
 
     def _run(self) -> None:
-        logger.info(
+        logger.debug(
             "Starting pipeline for remote session %s", self._session.session_label
         )
         try:
             self._controller.run()
         finally:
-            logger.info(
+            logger.debug(
                 "Remote session %s pipeline stopped", self._session.session_label
             )

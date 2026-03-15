@@ -5,7 +5,6 @@ import os
 
 LOG_DIR = os.path.join(os.path.dirname(__file__), "..", "logs")
 PROJECT_PACKAGE = "server"
-_DEFAULT_CONSOLE_LEVEL = "INFO"
 
 
 class _InfoFilter(logging.Filter):
@@ -32,10 +31,9 @@ def setup_logging() -> None:
     - console: project logs only, INFO and above
     """
     os.makedirs(LOG_DIR, exist_ok=True)
-    console_level_name = os.environ.get(
-        "COGNITIVESENSE_LOG_LEVEL",
-        _DEFAULT_CONSOLE_LEVEL,
-    )
+    from config.settings import get_settings
+
+    console_level_name = get_settings().cognitivesense_log_level
     console_level = _parse_log_level(console_level_name)
 
     fmt = "%(asctime)s %(name)s %(levelname)s %(message)s"
@@ -109,7 +107,7 @@ def setup_logging() -> None:
         pkg_logger.addHandler(info_handler)
         pkg_logger.addHandler(console_handler)
 
-    logging.getLogger(__name__).info(
+    logging.getLogger(__name__).debug(
         "Console log level set to %s",
         logging.getLevelName(console_level),
     )

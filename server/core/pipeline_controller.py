@@ -8,7 +8,6 @@ from typing import Protocol
 
 from audio.speech_tone_classifier import SpeechToneClassifier
 from core.sustained_state_monitor import SustainedStateMonitor
-from dotenv import load_dotenv
 from input.mic_adapter import LocalMicAdapter
 from input.screenshot_manager import ScreenshotManager
 from models.protocols import MicSource
@@ -35,8 +34,6 @@ from vision.facial_expression_classifier import (
     BlendshapeExpressionClassifier,
 )
 from vision.posture_detector import MediaPipePostureDetector
-
-load_dotenv()
 
 logger = logging.getLogger(__name__)
 
@@ -68,6 +65,7 @@ class PipelineController:
         state_tracker: StateTrackerProtocol,
         mic_source: MicSource | None = None,
         telemetry_sink: TelemetrySinkProtocol | None = None,
+        speech_tone_backend: str = "heuristic",
     ) -> None:
         self._config = config
         self._llm_engine = llm_engine
@@ -96,7 +94,7 @@ class PipelineController:
         # Audio
         self._speech_classifier: SpeechToneClassifier | None = None
         if config.mic_enabled:
-            self._speech_classifier = SpeechToneClassifier()
+            self._speech_classifier = SpeechToneClassifier(backend=speech_tone_backend)
 
         # Subscribers
         self._subscribers: list[Callable[[LLMResponse], None]] = []
@@ -139,7 +137,7 @@ class PipelineController:
             self._mic.start()
 
         frame_interval = 1.0 / self._config.target_fps
-        logger.info(
+        logger.debug(
             "Pipeline running at %d FPS in %s mode",
             self._config.target_fps,
             self._config.environment.value,
@@ -154,10 +152,10 @@ class PipelineController:
                 if sleep_time > 0:
                     time.sleep(sleep_time)
                 if self._renderer is not None and self._renderer.should_quit():
-                    logger.info("User quit via UI")
+                    logger.debug("User quit via UI")
                     self.request_stop()
         except KeyboardInterrupt:
-            logger.info("Pipeline interrupted")
+            logger.debug("Pipeline interrupted")
             self.request_stop()
         finally:
             self.close()
@@ -190,13 +188,13 @@ class PipelineController:
         logger.debug("_tick: face_detector.detect -> %s", "found" if faces else "none")
         if faces:
             landmarks = faces[0]
-            logger.info("_tick: face detected, %d landmarks", len(landmarks))
+            logger.debug("_tick: face detected, %d landmarks", len(landmarks))
 
             # 3. Blink
             blink_data = self._blink_detector.detect(landmarks)
             analysis.blink = blink_data
             analysis.blink_label = self._blink_detector.classify(blink_data)
-            logger.info(
+            logger.debug(
                 "_tick: blink=%s conf=%.2f ear=%.3f bpm=%.1f",
                 analysis.blink_label.label,
                 analysis.blink_label.confidence,
@@ -213,7 +211,7 @@ class PipelineController:
                 eye_state = self._eye_state_detector.detect(blendshapes[0])
                 analysis.eye_state = eye_state
                 analysis.eye_state_label = self._eye_state_detector.classify(eye_state)
-                logger.info(
+                logger.debug(
                     "_tick: eyes open=%.2f closed=%s dur=%.2fs perclos=%.2f",
                     eye_state.openness_average,
                     eye_state.is_closed,
@@ -221,7 +219,7 @@ class PipelineController:
                     eye_state.perclos,
                 )
                 if analysis.eye_state_label is not None:
-                    logger.info(
+                    logger.debug(
                         "_tick: eye_state=%s conf=%.2f",
                         analysis.eye_state_label.label,
                         analysis.eye_state_label.confidence,
@@ -230,14 +228,14 @@ class PipelineController:
                 yawn = self._yawn_detector.detect(blendshapes[0])
                 analysis.yawn = yawn
                 analysis.yawn_label = self._yawn_detector.classify(yawn)
-                logger.info(
+                logger.debug(
                     "_tick: jaw_open=%.2f yawn_shape=%s dur=%.2fs",
                     yawn.jaw_open,
                     yawn.is_yawn_shape,
                     yawn.yawn_duration_seconds,
                 )
                 if analysis.yawn_label is not None:
-                    logger.info(
+                    logger.debug(
                         "_tick: yawn=%s conf=%.2f",
                         analysis.yawn_label.label,
                         analysis.yawn_label.confidence,
@@ -246,12 +244,12 @@ class PipelineController:
             # 4. Gaze
             if analysis.eye_state is not None and analysis.eye_state.is_closed:
                 self._gaze_detector.reset()
-                logger.info("_tick: gaze skipped while eyes are closed")
+                logger.debug("_tick: gaze skipped while eyes are closed")
             else:
                 gaze_data = self._gaze_detector.detect(landmarks)
                 analysis.gaze = gaze_data
                 analysis.gaze_label = self._gaze_detector.classify(gaze_data)
-                logger.info(
+                logger.debug(
                     "_tick: gaze=%s conf=%.2f direction=%s h=%.2f v=%.2f",
                     analysis.gaze_label.label,
                     analysis.gaze_label.confidence,
@@ -268,14 +266,14 @@ class PipelineController:
             analysis.head_pose = head_pose
             if head_pose is not None:
                 analysis.head_pose_label = self._head_pose_detector.classify(head_pose)
-                logger.info(
+                logger.debug(
                     "_tick: head_pose yaw=%.1f pitch=%.1f roll=%.1f",
                     head_pose.yaw,
                     head_pose.pitch,
                     head_pose.roll,
                 )
                 if analysis.head_pose_label is not None:
-                    logger.info(
+                    logger.debug(
                         "_tick: head_pose=%s conf=%.2f",
                         analysis.head_pose_label.label,
                         analysis.head_pose_label.confidence,
@@ -285,7 +283,7 @@ class PipelineController:
             if blendshapes:
                 expression = self._expression_classifier.classify(blendshapes[0])
                 analysis.expression = expression
-                logger.info(
+                logger.debug(
                     "_tick: expression=%s conf=%.2f",
                     expression.label,
                     expression.confidence,
@@ -306,7 +304,7 @@ class PipelineController:
         )
         if posture_data is not None:
             analysis.posture = self._posture_detector.classify(posture_data)
-            logger.info(
+            logger.debug(
                 "_tick: posture=%s conf=%.2f",
                 analysis.posture.label,
                 analysis.posture.confidence,
@@ -321,7 +319,7 @@ class PipelineController:
             )
             if chunk is not None and self._speech_classifier is not None:
                 analysis.speech_tone = self._speech_classifier.classify(chunk)
-                logger.info(
+                logger.debug(
                     "_tick: speech_tone=%s conf=%.2f",
                     analysis.speech_tone.label,
                     analysis.speech_tone.confidence,
@@ -346,7 +344,7 @@ class PipelineController:
 
         sustained_alert = self._sustained_state_monitor.observe(current_state)
         if sustained_alert is not None:
-            logger.info(
+            logger.debug(
                 "_tick: sustained alert label=%s duration=%.1fs conf=%.2f repeats=%d",
                 sustained_alert.label.value,
                 sustained_alert.duration_seconds,
@@ -359,7 +357,7 @@ class PipelineController:
 
         # 9. LLM reasoning on state transition
         if transition is not None:
-            logger.info(
+            logger.debug(
                 "_tick: transition %s -> %s",
                 transition.previous_state.label.value,
                 transition.new_state.label.value,
@@ -410,7 +408,7 @@ class PipelineController:
         current_state: CognitiveState,
     ) -> None:
         self._last_response = response
-        logger.info(
+        logger.debug(
             "_tick: feedback emitted kind=%s notify=%s subscribers=%d",
             response.trigger_kind,
             response.should_notify,
@@ -514,14 +512,14 @@ class PipelineController:
 
         waited = now - self._waiting_for_frames_since
         if self._config.input_source is InputSource.REMOTE_MEDIA:
-            logger.info(
+            logger.debug(
                 "Waiting for network media on %s:%d (%.1fs elapsed)",
                 self._config.remote_media_host,
                 self._config.remote_media_port,
                 waited,
             )
         else:
-            logger.info(
+            logger.debug(
                 "Waiting for local camera frames (%.1fs elapsed)",
                 waited,
             )
@@ -532,7 +530,7 @@ class PipelineController:
             return
 
         waited = time.monotonic() - self._waiting_for_frames_since
-        logger.info("Frame stream became available after %.1fs", waited)
+        logger.debug("Frame stream became available after %.1fs", waited)
         self._waiting_for_frames_since = None
         self._last_waiting_log_time = 0.0
 

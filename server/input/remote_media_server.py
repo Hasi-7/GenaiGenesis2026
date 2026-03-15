@@ -276,7 +276,7 @@ class RemoteClientSession:
         )
 
     def _run(self) -> None:
-        logger.info("Remote session %s connected", self.session_label)
+        logger.debug("Remote session %s connected", self.session_label)
         try:
             self._read_client_loop()
         except OSError:
@@ -288,7 +288,7 @@ class RemoteClientSession:
                 self._client_socket.close()
             except OSError:
                 pass
-            logger.info(
+            logger.debug(
                 "Remote session %s disconnected after %.1fs; frames=%d audio=%d",
                 self.session_label,
                 max(0.0, time.time() - self._connected_at),
@@ -347,7 +347,7 @@ class RemoteClientSession:
         self._hello_received = True
         self._source_kind = source_kind
         self._capabilities = flags
-        logger.info(
+        logger.debug(
             "Session %s hello: source=%s capabilities=0x%08x",
             self.session_label,
             self.source_name,
@@ -381,7 +381,7 @@ class RemoteClientSession:
             )
 
         if self._frame_packets_received == 1:
-            logger.info(
+            logger.debug(
                 "Received first video frame for %s: %dx%d (%d bytes JPEG)",
                 self.session_label,
                 self._frame_width,
@@ -419,7 +419,7 @@ class RemoteClientSession:
             )
 
         if self._audio_packets_received == 1:
-            logger.info(
+            logger.debug(
                 "Received first audio chunk for %s: rate=%d channels=%d samples=%d",
                 self.session_label,
                 self._audio_sample_rate,
@@ -575,7 +575,7 @@ class RemoteMediaServer:
             daemon=True,
         )
         self._thread.start()
-        logger.info("Listening for remote media on %s:%d", host, port)
+        logger.debug("Listening for remote media on %s:%d", host, port)
 
     def is_opened(self) -> bool:
         return self._server_socket is not None and not self._stop_event.is_set()
