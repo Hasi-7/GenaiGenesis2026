@@ -350,11 +350,12 @@ class LLMStateTracker:
 
     def _detection_loop(self) -> None:
         """Runs in a daemon thread. Periodically queries the LLM."""
-        while not self._stop_event.wait(timeout=self._check_interval_seconds):
+        while not self._stop_event.is_set():
             try:
                 self._detection_tick()
             except Exception:
                 logger.exception("LLMStateTracker: background detection error")
+            self._stop_event.wait(timeout=self._check_interval_seconds)
 
     def _detection_tick(self) -> None:
         now = time.time()
