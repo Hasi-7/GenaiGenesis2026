@@ -227,6 +227,8 @@ static bool open_chip(MirrorLcdDisplay *display) {
     const char *chip_candidates[] = {
         configured_path,
         "/dev/gpiochip4",
+        "/dev/gpiochip3",
+        "/dev/gpiochip2",
         "/dev/gpiochip0",
         "/dev/gpiochip1",
     };
@@ -345,6 +347,17 @@ void mirror_lcd_init(MirrorLcdDisplay *display) {
     copy_lcd_line(display->rendered_line_1, sizeof(display->rendered_line_1), "");
     copy_lcd_line(display->rendered_line_2, sizeof(display->rendered_line_2), "");
     if (display->enabled) {
+        fprintf(
+            stderr,
+            "LCD initialized on %s (RS=%u E=%u D4=%u D5=%u D6=%u D7=%u).\n",
+            display->chip_path,
+            display->rs_pin,
+            display->e_pin,
+            display->d4_pin,
+            display->d5_pin,
+            display->d6_pin,
+            display->d7_pin
+        );
         mirror_lcd_refresh(display);
     }
 #else
