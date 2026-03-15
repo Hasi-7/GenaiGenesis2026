@@ -4,7 +4,9 @@
       "Bash(cd:*)",
       "Bash(uv run:*)",
       "Bash(start:*)",
-      "Bash(git commit:*)"
+      "Bash(git commit:*)",
+      "Bash(find:*)",
+      "Bash(wmic cpu:*)"
     ]
   }
 }
