@@ -4,6 +4,7 @@ var __importDefault = (this && this.__importDefault) || function (mod) {
 };
 Object.defineProperty(exports, "__esModule", { value: true });
 const electron_1 = require("electron");
+const node_crypto_1 = __importDefault(require("node:crypto"));
 const node_fs_1 = __importDefault(require("node:fs"));
 const node_net_1 = __importDefault(require("node:net"));
 const node_os_1 = __importDefault(require("node:os"));
@@ -11,8 +12,9 @@ const node_path_1 = __importDefault(require("node:path"));
 const isDev = Boolean(process.env.VITE_DEV_SERVER_URL);
 const enableTray = process.platform !== 'linux';
 const desktopFileName = 'cognitivesense-shell.desktop';
-const mediaHost = process.env.COGNITIVESENSE_SERVER_HOST ?? '127.0.0.1';
-const mediaPort = Number(process.env.COGNITIVESENSE_SERVER_PORT ?? '9000');
+const defaultMediaHost = process.env.COGNITIVESENSE_SERVER_HOST ?? '127.0.0.1';
+const defaultMediaPort = Number(process.env.COGNITIVESENSE_SERVER_PORT ?? '9000');
+const defaultApiBaseUrl = process.env.COGNITIVESENSE_API_URL ?? 'http://127.0.0.1:8080';
 const useFakeMedia = process.env.COGNITIVESENSE_FAKE_MEDIA === '1';
 const disableGpu = process.env.COGNITIVESENSE_DISABLE_GPU === '1';
 const runtimeLogPath = node_path_1.default.join(node_os_1.default.tmpdir(), 'cognitivesense-electron-runtime.log');
@@ -78,6 +80,48 @@ const severityLabels = {
     [severitySoft]: 'soft',
     [severityWarning]: 'warning',
     [severityUrgent]: 'urgent',
+};
+let clientConfig = {
+    mediaHost: defaultMediaHost,
+    mediaPort: defaultMediaPort,
+    apiBaseUrl: defaultApiBaseUrl,
+    deviceId: 'bootstrap-device',
+    deviceName: node_os_1.default.hostname(),
+};
+const configPath = () => node_path_1.default.join(electron_1.app.getPath('userData'), 'client-config.json');
+const loadClientConfig = () => {
+    const nextConfig = {
+        mediaHost: defaultMediaHost,
+        mediaPort: defaultMediaPort,
+        apiBaseUrl: defaultApiBaseUrl,
+        deviceId: node_crypto_1.default.randomUUID(),
+        deviceName: node_os_1.default.hostname(),
+    };
+    try {
+        const raw = node_fs_1.default.readFileSync(configPath(), 'utf8');
+        const parsed = JSON.parse(raw);
+        if (typeof parsed.mediaHost === 'string' && parsed.mediaHost.trim()) {
+            nextConfig.mediaHost = parsed.mediaHost.trim();
+        }
+        if (typeof parsed.mediaPort === 'number' && Number.isFinite(parsed.mediaPort)) {
+            nextConfig.mediaPort = parsed.mediaPort;
+        }
+        if (typeof parsed.apiBaseUrl === 'string' && parsed.apiBaseUrl.trim()) {
+            nextConfig.apiBaseUrl = parsed.apiBaseUrl.trim();
+        }
+        if (typeof parsed.deviceId === 'string' && parsed.deviceId.trim()) {
+            nextConfig.deviceId = parsed.deviceId.trim();
+        }
+        if (typeof parsed.deviceName === 'string' && parsed.deviceName.trim()) {
+            nextConfig.deviceName = parsed.deviceName.trim();
+        }
+    }
+    catch {
+        // First run or malformed config - fall through to defaults.
+    }
+    node_fs_1.default.mkdirSync(node_path_1.default.dirname(configPath()), { recursive: true });
+    node_fs_1.default.writeFileSync(configPath(), `${JSON.stringify(nextConfig, null, 2)}\n`, 'utf8');
+    return nextConfig;
 };
 const showDesktopNotification = (title, body, severity = 'normal') => {
     if (electron_1.Notification.isSupported()) {
@@ -195,8 +239,8 @@ const emitToRenderer = (channel, payload) => {
 const getTransportPayload = (payload = {}) => {
     return {
         connection: payload.connection ?? backendConnection,
-        host: mediaHost,
-        port: mediaPort,
+        host: clientConfig.mediaHost,
+        port: clientConfig.mediaPort,
         detail: payload.detail,
     };
 };
@@ -238,11 +282,12 @@ const sendHelloPacket = () => {
     payload.writeUInt8(controlVersion, 0);
     payload.writeUInt8(sourceDesktop, 1);
     payload.writeUInt16BE(0, 2);
+    const identity = Buffer.from(`${clientConfig.deviceId}|${clientConfig.deviceName}`, 'utf8');
     const capabilityFlags = capabilitySendVideo |
         capabilitySendAudio |
         capabilityReceiveState |
         capabilityBinaryControl;
-    return sendControlPacket(controlHello, capabilityFlags, payload);
+    return sendControlPacket(controlHello, capabilityFlags, Buffer.concat([payload, identity]));
 };
 const emitStateTelemetry = (payload) => {
     if (payload.length < 8) {
@@ -324,14 +369,23 @@ const connectBackend = () => {
     if (backendSocket)
         return;
     backendConnection = 'connecting';
-    writeRuntimeLog('main', 'backend:connecting', { host: mediaHost, port: mediaPort });
+    writeRuntimeLog('main', 'backend:connecting', {
+        host: clientConfig.mediaHost,
+        port: clientConfig.mediaPort,
+    });
     emitTransport();
-    const socket = node_net_1.default.createConnection({ host: mediaHost, port: mediaPort });
+    const socket = node_net_1.default.createConnection({
+        host: clientConfig.mediaHost,
+        port: clientConfig.mediaPort,
+    });
     backendSocket = socket;
     socket.on('connect', () => {
         backendConnection = 'connected';
         backendBuffer = Buffer.alloc(0);
-        writeRuntimeLog('main', 'backend:connected', { host: mediaHost, port: mediaPort });
+        writeRuntimeLog('main', 'backend:connected', {
+            host: clientConfig.mediaHost,
+            port: clientConfig.mediaPort,
+        });
         sendHelloPacket();
         emitTransportSnapshot();
     });
@@ -462,6 +516,7 @@ const createTray = () => {
 };
 electron_1.app.whenReady().then(async () => {
     electron_1.app.setAppUserModelId('com.genesis.cognitivesense');
+    clientConfig = loadClientConfig();
     ensureLinuxDesktopEntry();
     connectBackend();
     electron_1.session.defaultSession.setPermissionRequestHandler((_webContents, permission, callback) => {
@@ -515,7 +570,10 @@ electron_1.app.whenReady().then(async () => {
         }
         reportMediaCounters();
     });
-    electron_1.ipcMain.handle('stream:backend-target', () => ({ host: mediaHost, port: mediaPort }));
+    electron_1.ipcMain.handle('stream:backend-target', () => ({
+        host: clientConfig.mediaHost,
+        port: clientConfig.mediaPort,
+    }));
     electron_1.ipcMain.handle('telemetry:transport-state', () => getTransportPayload({ detail: transportDetail() }));
     electron_1.ipcMain.on('diagnostic:log', (_event, payload) => {
         writeRuntimeLog('renderer', payload.message, payload.data);

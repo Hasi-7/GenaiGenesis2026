@@ -128,32 +128,30 @@ class EarBlinkDetector:
         """Map blink rate to a cognitive-state label.
 
         Thresholds:
-            <10 bpm  -> "stressed"   (suppressed blinking under stress)
-            15-20 bpm-> "normal"
-            >25 bpm  -> "fatigued"   (fatigue-induced excessive blinking)
-            10-15 or 20-25 bpm -> "elevated" (transitional zone)
+            <12 bpm  -> "elevated"  (suppressed blinking, but not enough alone
+                                      to call stress reliably)
+            12-22 bpm-> "normal"
+            >28 bpm  -> "fatigued"  (fatigue-induced excessive blinking)
+            22-28 bpm -> "elevated" (transitional zone)
 
         Confidence is a simple linear interpolation within each band.
         """
         bpm = data.blinks_per_minute
         # No blinks recorded yet — not enough data to classify
         if bpm == 0.0:
-            return ClassifierResult(label="unknown", confidence=0.0)
-        if bpm < 10.0:
-            label = "stressed"
-            conf = max(0.5, 1.0 - bpm / 20.0)
-        elif bpm <= 15.0:
+            return ClassifierResult(label="normal", confidence=0.5)
+        if bpm < 12.0:
             label = "elevated"
-            conf = 0.55
-        elif bpm <= 20.0:
+            conf = min(0.72, 0.5 + (12.0 - bpm) / 18.0)
+        elif bpm <= 22.0:
             label = "normal"
-            conf = 0.5 + (1.0 - abs(bpm - 17.5) / 5.0) * 0.5
-        elif bpm <= 25.0:
+            conf = 0.55 + (1.0 - abs(bpm - 17.0) / 7.0) * 0.35
+        elif bpm <= 28.0:
             label = "elevated"
-            conf = 0.55
+            conf = 0.55 + min(0.15, (bpm - 22.0) / 40.0)
         else:
             label = "fatigued"
-            conf = min(1.0, 0.5 + (bpm - 25.0) / 20.0)
+            conf = min(1.0, 0.55 + (bpm - 28.0) / 18.0)
 
         return ClassifierResult(label=label, confidence=round(conf, 3))
 

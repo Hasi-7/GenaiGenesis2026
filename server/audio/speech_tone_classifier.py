@@ -9,6 +9,7 @@ from typing import Protocol, runtime_checkable
 import numpy as np
 from config.third_party import (
     AudioClassificationPipelineProtocol,
+    PipelineFactoryProtocol,
     load_transformers_pipeline,
 )
 from models.types import ClassifierResult
@@ -16,10 +17,8 @@ from numpy.typing import NDArray
 
 logger = logging.getLogger(__name__)
 
-try:
-    _transformers_pipeline_factory = load_transformers_pipeline()
-except Exception:  # pragma: no cover - optional dependency failure.
-    _transformers_pipeline_factory = None
+_transformers_pipeline_factory: PipelineFactoryProtocol | None = None
+_transformers_pipeline_import_failed = False
 
 
 class SpeechToneClassifierProtocol(Protocol):
@@ -166,10 +165,23 @@ class SpeechToneClassifier:
         )
 
     def _ensure_transformer_pipeline(self):
+        global _transformers_pipeline_factory
+        global _transformers_pipeline_import_failed
+
         if self._pipe_failed:
             return None
         if self._pipe is not None:
             return self._pipe
+
+        if (
+            _transformers_pipeline_factory is None
+            and not _transformers_pipeline_import_failed
+        ):
+            try:
+                _transformers_pipeline_factory = load_transformers_pipeline()
+            except Exception:
+                _transformers_pipeline_import_failed = True
+
         if _transformers_pipeline_factory is None:
             logger.warning(
                 "transformers is unavailable; falling back to heuristic speech tone"

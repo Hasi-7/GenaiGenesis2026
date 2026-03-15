@@ -61,20 +61,16 @@ class StateTrackerProtocol(Protocol):
 _LABEL_TO_STATE: dict[str, CognitiveStateLabel] = {
     # FATIGUED signals
     "fatigued": CognitiveStateLabel.FATIGUED,
-    "eyes_closed": CognitiveStateLabel.FATIGUED,
     "elevated": CognitiveStateLabel.FATIGUED,
     "slouching": CognitiveStateLabel.FATIGUED,
     "slouched": CognitiveStateLabel.FATIGUED,
     "leaning": CognitiveStateLabel.FATIGUED,
     "monotone": CognitiveStateLabel.FATIGUED,
-    "head_down": CognitiveStateLabel.FATIGUED,
-    "yawning": CognitiveStateLabel.FATIGUED,
     # STRESSED signals
     "stressed": CognitiveStateLabel.STRESSED,
     "tense": CognitiveStateLabel.STRESSED,
     # DISTRACTED signals
     "distracted": CognitiveStateLabel.DISTRACTED,
-    "head_away": CognitiveStateLabel.DISTRACTED,
     "left": CognitiveStateLabel.DISTRACTED,
     "right": CognitiveStateLabel.DISTRACTED,
     # FOCUSED signals
@@ -92,38 +88,6 @@ _CONFIDENCE_THRESHOLD = 0.6
 _STATE_CHANGE_THRESHOLD = 0.3
 _DEBOUNCE_SECONDS = 5.0
 _MIN_FRAMES_PER_HALF = 3
-
-_SIGNAL_SCORE_WEIGHTS: dict[str, float] = {
-    # Strong negative cues.
-    "eyes_closed": 1.7,
-    "fatigued": 1.25,
-    "head_down": 1.2,
-    "yawning": 1.15,
-    "stressed": 1.15,
-    "head_away": 1.1,
-    "distracted": 1.1,
-    # Supportive negative cues.
-    "elevated": 1.0,
-    "slouching": 0.95,
-    "slouched": 0.95,
-    "leaning": 0.9,
-    "monotone": 0.9,
-    "tense": 0.9,
-    "left": 0.85,
-    "right": 0.85,
-    # Focus should be the absence of strong negatives, not an easy winner.
-    "focused": 0.75,
-    "center": 0.55,
-    "upright": 0.45,
-    "calm": 0.4,
-    "relaxed": 0.3,
-    "neutral": 0.2,
-    "normal": 0.15,
-}
-
-_HARD_OVERRIDE_THRESHOLDS: dict[str, tuple[CognitiveStateLabel, float]] = {
-    "eyes_closed": (CognitiveStateLabel.FATIGUED, 0.82),
-}
 
 
 def _to_contributing(
@@ -469,12 +433,6 @@ def _collect_signals(
                 signals.append(ClassifierResult(label="stressed", confidence=0.6))
             else:
                 signals.append(ClassifierResult(label="normal", confidence=0.8))
-        if f.eye_state_label is not None:
-            signals.append(f.eye_state_label)
-        if f.head_pose_label is not None:
-            signals.append(f.head_pose_label)
-        if f.yawn_label is not None:
-            signals.append(f.yawn_label)
         if f.gaze_label is not None:
             signals.append(f.gaze_label)
         elif f.gaze is not None:
@@ -504,17 +462,10 @@ def _weighted_vote(
     total_weight = 0.0
 
     for s in signals:
-        override = _HARD_OVERRIDE_THRESHOLDS.get(s.label.lower())
-        if override is not None and s.confidence >= override[1]:
-            return override[0], min(1.0, s.confidence)
-
-    for s in signals:
-        label = s.label.lower()
-        state = _LABEL_TO_STATE.get(label)
+        state = _LABEL_TO_STATE.get(s.label.lower())
         if state is not None and state in scores:
-            weight = s.confidence * _SIGNAL_SCORE_WEIGHTS.get(label, 1.0)
-            scores[state] += weight
-            total_weight += weight
+            scores[state] += s.confidence
+            total_weight += s.confidence
 
     if total_weight == 0.0:
         return CognitiveStateLabel.UNKNOWN, 0.0

@@ -8,6 +8,7 @@ import {
   nativeImage,
   session,
 } from 'electron';
+import crypto from 'node:crypto';
 import fs from 'node:fs';
 import net from 'node:net';
 import os from 'node:os';
@@ -16,8 +17,9 @@ import path from 'node:path';
 const isDev = Boolean(process.env.VITE_DEV_SERVER_URL);
 const enableTray = process.platform !== 'linux';
 const desktopFileName = 'cognitivesense-shell.desktop';
-const mediaHost = process.env.COGNITIVESENSE_SERVER_HOST ?? '127.0.0.1';
-const mediaPort = Number(process.env.COGNITIVESENSE_SERVER_PORT ?? '9000');
+const defaultMediaHost = process.env.COGNITIVESENSE_SERVER_HOST ?? '127.0.0.1';
+const defaultMediaPort = Number(process.env.COGNITIVESENSE_SERVER_PORT ?? '9000');
+const defaultApiBaseUrl = process.env.COGNITIVESENSE_API_URL ?? 'http://127.0.0.1:8080';
 const useFakeMedia = process.env.COGNITIVESENSE_FAKE_MEDIA === '1';
 const disableGpu = process.env.COGNITIVESENSE_DISABLE_GPU === '1';
 const runtimeLogPath = path.join(os.tmpdir(), 'cognitivesense-electron-runtime.log');
@@ -89,6 +91,60 @@ const severityLabels: Record<number, string> = {
   [severitySoft]: 'soft',
   [severityWarning]: 'warning',
   [severityUrgent]: 'urgent',
+};
+
+type ClientRuntimeConfig = {
+  mediaHost: string;
+  mediaPort: number;
+  apiBaseUrl: string;
+  deviceId: string;
+  deviceName: string;
+};
+
+let clientConfig: ClientRuntimeConfig = {
+  mediaHost: defaultMediaHost,
+  mediaPort: defaultMediaPort,
+  apiBaseUrl: defaultApiBaseUrl,
+  deviceId: 'bootstrap-device',
+  deviceName: os.hostname(),
+};
+
+const configPath = () => path.join(app.getPath('userData'), 'client-config.json');
+
+const loadClientConfig = (): ClientRuntimeConfig => {
+  const nextConfig: ClientRuntimeConfig = {
+    mediaHost: defaultMediaHost,
+    mediaPort: defaultMediaPort,
+    apiBaseUrl: defaultApiBaseUrl,
+    deviceId: crypto.randomUUID(),
+    deviceName: os.hostname(),
+  };
+
+  try {
+    const raw = fs.readFileSync(configPath(), 'utf8');
+    const parsed = JSON.parse(raw) as Partial<ClientRuntimeConfig>;
+    if (typeof parsed.mediaHost === 'string' && parsed.mediaHost.trim()) {
+      nextConfig.mediaHost = parsed.mediaHost.trim();
+    }
+    if (typeof parsed.mediaPort === 'number' && Number.isFinite(parsed.mediaPort)) {
+      nextConfig.mediaPort = parsed.mediaPort;
+    }
+    if (typeof parsed.apiBaseUrl === 'string' && parsed.apiBaseUrl.trim()) {
+      nextConfig.apiBaseUrl = parsed.apiBaseUrl.trim();
+    }
+    if (typeof parsed.deviceId === 'string' && parsed.deviceId.trim()) {
+      nextConfig.deviceId = parsed.deviceId.trim();
+    }
+    if (typeof parsed.deviceName === 'string' && parsed.deviceName.trim()) {
+      nextConfig.deviceName = parsed.deviceName.trim();
+    }
+  } catch {
+    // First run or malformed config - fall through to defaults.
+  }
+
+  fs.mkdirSync(path.dirname(configPath()), { recursive: true });
+  fs.writeFileSync(configPath(), `${JSON.stringify(nextConfig, null, 2)}\n`, 'utf8');
+  return nextConfig;
 };
 
 const showDesktopNotification = (
@@ -240,8 +296,8 @@ const emitToRenderer = (channel: string, payload: unknown) => {
 const getTransportPayload = (payload: Partial<TransportPayload> = {}): TransportPayload => {
   return {
     connection: payload.connection ?? backendConnection,
-    host: mediaHost,
-    port: mediaPort,
+    host: clientConfig.mediaHost,
+    port: clientConfig.mediaPort,
     detail: payload.detail,
   };
 };
@@ -288,6 +344,7 @@ const sendHelloPacket = () => {
   payload.writeUInt8(controlVersion, 0);
   payload.writeUInt8(sourceDesktop, 1);
   payload.writeUInt16BE(0, 2);
+  const identity = Buffer.from(`${clientConfig.deviceId}|${clientConfig.deviceName}`, 'utf8');
 
   const capabilityFlags =
     capabilitySendVideo |
@@ -295,7 +352,7 @@ const sendHelloPacket = () => {
     capabilityReceiveState |
     capabilityBinaryControl;
 
-  return sendControlPacket(controlHello, capabilityFlags, payload);
+  return sendControlPacket(controlHello, capabilityFlags, Buffer.concat([payload, identity]));
 };
 
 const emitStateTelemetry = (payload: Buffer) => {
@@ -388,16 +445,25 @@ const connectBackend = () => {
   if (backendSocket) return;
 
   backendConnection = 'connecting';
-  writeRuntimeLog('main', 'backend:connecting', { host: mediaHost, port: mediaPort });
+  writeRuntimeLog('main', 'backend:connecting', {
+    host: clientConfig.mediaHost,
+    port: clientConfig.mediaPort,
+  });
   emitTransport();
 
-  const socket = net.createConnection({ host: mediaHost, port: mediaPort });
+  const socket = net.createConnection({
+    host: clientConfig.mediaHost,
+    port: clientConfig.mediaPort,
+  });
   backendSocket = socket;
 
   socket.on('connect', () => {
     backendConnection = 'connected';
     backendBuffer = Buffer.alloc(0);
-    writeRuntimeLog('main', 'backend:connected', { host: mediaHost, port: mediaPort });
+    writeRuntimeLog('main', 'backend:connected', {
+      host: clientConfig.mediaHost,
+      port: clientConfig.mediaPort,
+    });
     sendHelloPacket();
     emitTransportSnapshot();
   });
@@ -542,6 +608,7 @@ const createTray = () => {
 
 app.whenReady().then(async () => {
   app.setAppUserModelId('com.genesis.cognitivesense');
+  clientConfig = loadClientConfig();
   ensureLinuxDesktopEntry();
   connectBackend();
 
@@ -611,7 +678,10 @@ app.whenReady().then(async () => {
       reportMediaCounters();
     },
   );
-  ipcMain.handle('stream:backend-target', () => ({ host: mediaHost, port: mediaPort }));
+  ipcMain.handle('stream:backend-target', () => ({
+    host: clientConfig.mediaHost,
+    port: clientConfig.mediaPort,
+  }));
   ipcMain.handle('telemetry:transport-state', () => getTransportPayload({ detail: transportDetail() }));
   ipcMain.on('diagnostic:log', (_event, payload: { message: string; data?: unknown }) => {
     writeRuntimeLog('renderer', payload.message, payload.data);

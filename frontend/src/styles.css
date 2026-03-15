@@ -52,6 +52,8 @@ button {
   height: 48px;
   padding: 0 12px;
   background: linear-gradient(180deg, rgba(5, 9, 13, 0.88), rgba(5, 9, 13, 0.18));
+  -webkit-app-region: drag;
+  app-region: drag;
 }
 
 .titlebar-drag {
@@ -59,8 +61,6 @@ button {
   align-items: center;
   gap: 10px;
   min-width: 0;
-  -webkit-app-region: drag;
-  app-region: drag;
 }
 
 .titlebar-mark {
@@ -93,6 +93,8 @@ button {
   background: rgba(10, 16, 22, 0.85);
   color: #eef3f7;
   cursor: pointer;
+  -webkit-app-region: no-drag;
+  app-region: no-drag;
 }
 
 .titlebar-button.danger {

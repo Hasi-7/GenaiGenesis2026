@@ -53,37 +53,6 @@ class GazeData:
 
 
 @dataclass(slots=True)
-class EyeStateData:
-    """Eye openness / closure metrics derived from landmarks or blendshapes."""
-
-    openness_left: float
-    openness_right: float
-    openness_average: float
-    is_closed: bool
-    closure_duration_seconds: float
-    perclos: float
-
-
-@dataclass(slots=True)
-class HeadPoseData:
-    """Estimated head pose angles in degrees."""
-
-    yaw: float
-    pitch: float
-    roll: float
-
-
-@dataclass(slots=True)
-class YawnData:
-    """Jaw-open metrics used to detect sustained yawning."""
-
-    jaw_open: float
-    mouth_close: float
-    yawn_duration_seconds: float
-    is_yawn_shape: bool
-
-
-@dataclass(slots=True)
 class PostureData:
     """Posture classification from MediaPipe Pose."""
 
@@ -99,12 +68,6 @@ class FrameAnalysis:
     timestamp: float
     blink: BlinkData | None = None
     blink_label: ClassifierResult | None = None
-    eye_state: EyeStateData | None = None
-    eye_state_label: ClassifierResult | None = None
-    head_pose: HeadPoseData | None = None
-    head_pose_label: ClassifierResult | None = None
-    yawn: YawnData | None = None
-    yawn_label: ClassifierResult | None = None
     gaze: GazeData | None = None
     gaze_label: ClassifierResult | None = None
     expression: ClassifierResult | None = None

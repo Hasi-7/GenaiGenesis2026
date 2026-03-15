@@ -21,6 +21,10 @@
   "build": {
     "appId": "com.genesis.cognitivesense",
     "productName": "CognitiveSense",
+    "artifactName": "CognitiveSense-${os}-${arch}.${ext}",
+    "directories": {
+      "output": "release"
+    },
     "files": [
       "assets/**",
       "dist/**",
@@ -29,7 +33,8 @@
     ],
     "linux": {
       "target": [
-        "AppImage"
+        "AppImage",
+        "deb"
       ],
       "category": "Utility"
     },

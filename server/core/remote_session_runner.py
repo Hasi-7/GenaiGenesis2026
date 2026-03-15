@@ -11,6 +11,13 @@ from openai import OpenAI
 from reasoning.llm_engine import LLMEngine, RateLimiter
 from state.state_tracker import LLMStateTracker, StateTracker
 
+from server.control.store import get_control_store
+from server.control.telemetry_recorder import (
+    CompositeTelemetrySink,
+    DeviceIdentity,
+    TelemetryRecorder,
+)
+
 logger = logging.getLogger(__name__)
 
 
@@ -25,6 +32,16 @@ class RemoteSessionRunner:
     ) -> None:
         self._session = session
         self._thread: threading.Thread | None = None
+        self._telemetry_recorder = TelemetryRecorder(
+            get_control_store(),
+            lambda: DeviceIdentity(
+                device_key=session.device_key,
+                display_name=session.display_name,
+                source_kind=session.source_name,
+                last_ip=session.remote_ip,
+                transport_session_label=session.session_label,
+            ),
+        )
 
         screenshot_manager = ScreenshotManager(session.make_camera_source())
         if tracker_type == "llm" and openai_client is not None:
@@ -49,7 +66,7 @@ class RemoteSessionRunner:
             screenshot_manager=screenshot_manager,
             state_tracker=state_tracker,
             mic_source=session.make_mic_source(),
-            telemetry_sink=session,
+            telemetry_sink=CompositeTelemetrySink(session, self._telemetry_recorder),
         )
 
     def start(self) -> None:
@@ -65,6 +82,7 @@ class RemoteSessionRunner:
 
     def stop(self) -> None:
         self._controller.request_stop()
+        self._telemetry_recorder.close()
 
     def join(self, timeout: float | None = None) -> None:
         if self._thread is None:
@@ -78,6 +96,7 @@ class RemoteSessionRunner:
         try:
             self._controller.run()
         finally:
+            self._telemetry_recorder.close()
             logger.info(
                 "Remote session %s pipeline stopped", self._session.session_label
             )

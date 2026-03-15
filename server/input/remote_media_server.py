@@ -124,6 +124,8 @@ class RemoteClientSession:
         self._hello_received = False
         self._source_kind = _SOURCE_UNKNOWN
         self._capabilities = 0
+        self._device_key = f"session-{session_id}-{address[0]}"
+        self._display_name = self._device_key
 
         self._client_socket.settimeout(1.0)
 
@@ -145,6 +147,18 @@ class RemoteClientSession:
         if self._source_kind == _SOURCE_MIRROR:
             return "mirror"
         return "unknown"
+
+    @property
+    def device_key(self) -> str:
+        return self._device_key
+
+    @property
+    def display_name(self) -> str:
+        return self._display_name
+
+    @property
+    def remote_ip(self) -> str:
+        return self._address[0]
 
     def start(self) -> None:
         if self._thread is not None:
@@ -329,13 +343,15 @@ class RemoteClientSession:
     def _handle_event(self, message_type: int, flags: int, payload: bytes) -> None:
         if message_type != _EVENT_HELLO:
             return
-        if len(payload) != _HELLO_PAYLOAD.size:
+        if len(payload) < _HELLO_PAYLOAD.size:
             logger.warning(
                 "Ignoring malformed hello packet from %s", self.session_label
             )
             return
 
-        version, source_kind, _reserved = _HELLO_PAYLOAD.unpack(payload)
+        version, source_kind, _reserved = _HELLO_PAYLOAD.unpack(
+            payload[: _HELLO_PAYLOAD.size]
+        )
         if version != _HELLO_VERSION:
             logger.warning(
                 "Ignoring unsupported hello version %d from %s",
@@ -347,12 +363,33 @@ class RemoteClientSession:
         self._hello_received = True
         self._source_kind = source_kind
         self._capabilities = flags
+        self._parse_identity_payload(payload[_HELLO_PAYLOAD.size :])
         logger.info(
-            "Session %s hello: source=%s capabilities=0x%08x",
+            "Session %s hello: source=%s device=%s capabilities=0x%08x",
             self.session_label,
             self.source_name,
+            self._device_key,
             self._capabilities,
         )
+
+    def _parse_identity_payload(self, payload: bytes) -> None:
+        if not payload:
+            return
+        try:
+            decoded = payload.decode("utf-8", errors="ignore").strip()
+        except Exception:
+            return
+        if not decoded:
+            return
+        device_key, separator, display_name = decoded.partition("|")
+        normalized_key = device_key.strip()
+        normalized_name = display_name.strip() if separator else ""
+        if normalized_key:
+            self._device_key = normalized_key[:96]
+        if normalized_name:
+            self._display_name = normalized_name[:96]
+        elif normalized_key:
+            self._display_name = normalized_key[:96]
 
     def _handle_frame(
         self,

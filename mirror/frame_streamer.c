@@ -288,17 +288,38 @@ static bool send_control_packet(
 }
 
 static bool send_hello_packet(int socket_fd) {
-    uint8_t payload[4] = {HELLO_VERSION, SOURCE_MIRROR, 0U, 0U};
+    uint8_t payload[132] = {HELLO_VERSION, SOURCE_MIRROR, 0U, 0U};
+    char device_id[65] = {0};
+    char host_name[65] = {0};
+    const char *configured_device_id = getenv("COGNITIVESENSE_DEVICE_ID");
     const uint32_t flags = CAPABILITY_SEND_VIDEO
         | CAPABILITY_RECEIVE_STATE
         | CAPABILITY_BINARY_CONTROL;
+
+    if (configured_device_id != NULL && configured_device_id[0] != '\0') {
+        snprintf(device_id, sizeof(device_id), "%s", configured_device_id);
+    } else if (gethostname(device_id, sizeof(device_id) - 1U) != 0) {
+        snprintf(device_id, sizeof(device_id), "mirror-device");
+    }
+
+    if (gethostname(host_name, sizeof(host_name) - 1U) != 0) {
+        snprintf(host_name, sizeof(host_name), "Mirror Device");
+    }
+
+    snprintf(
+        (char *) payload + 4,
+        sizeof(payload) - 4U,
+        "%s|%s",
+        device_id,
+        host_name
+    );
 
     return send_control_packet(
         socket_fd,
         EVENT_HELLO,
         flags,
         payload,
-        sizeof(payload)
+        4U + strlen((const char *) payload + 4U)
     );
 }
 

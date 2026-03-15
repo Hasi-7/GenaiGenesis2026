@@ -1,0 +1,13 @@
+.git
+.github
+.venv
+__pycache__
+*.pyc
+frontend/node_modules
+frontend/dist
+frontend/dist-electron
+mirror/build
+data
+frontend/electron_out
+frontend/frontend_live.log
+server_run.log
