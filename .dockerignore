@@ -1,8 +1,12 @@
 .git
 .github
 .venv
+.venv-win
+.uv-cache
+C:\Personal\VSCode\GenaiGenesis2026\.venv
 __pycache__
 *.pyc
+*.log
 frontend/node_modules
 frontend/dist
 frontend/dist-electron
@@ -11,3 +15,5 @@ data
 frontend/electron_out
 frontend/frontend_live.log
 server_run.log
+server/logs
+test

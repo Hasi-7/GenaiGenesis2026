@@ -12,7 +12,7 @@ import time
 from dataclasses import dataclass
 from pathlib import Path
 
-from control.models import (
+from server.control.models import (
     DeviceDetailResponse,
     DeviceFeedbackView,
     DeviceView,

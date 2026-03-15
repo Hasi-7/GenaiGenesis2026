@@ -19,7 +19,7 @@ from fastapi import (
 from fastapi.responses import FileResponse, HTMLResponse, RedirectResponse
 from fastapi.templating import Jinja2Templates
 
-from control.models import (
+from server.control.models import (
     AuthPayload,
     AuthResponse,
     ClaimPayload,
@@ -32,7 +32,7 @@ from control.models import (
     UnclaimedDeviceView,
     UserView,
 )
-from control.store import UserRecord, get_control_store
+from server.control.store import UserRecord, get_control_store
 
 app = FastAPI(title="CognitiveSense Control API", version="0.1.0")
 
