@@ -192,6 +192,12 @@ GPIOD_INCLUDE_DIR:PATH=/usr/include
 //Path to a library.
 GPIOD_LIBRARY:FILEPATH=/usr/lib/x86_64-linux-gnu/libgpiod.so
 
+//Arguments to supply to pkg-config
+PKG_CONFIG_ARGN:STRING=
+
+//pkg-config executable
+PKG_CONFIG_EXECUTABLE:FILEPATH=/usr/bin/pkg-config
+
 //Value Computed by CMake
 mirror_capture_BINARY_DIR:STATIC=/mnt/c/Personal/VSCode/GenaiGenesis2026/mirror/build-test
 
@@ -335,4 +341,10 @@ CMAKE_UNAME:INTERNAL=/usr/bin/uname
 CMAKE_VERBOSE_MAKEFILE-ADVANCED:INTERNAL=1
 //Have symbol gpiod_chip_request_lines
 COGNITIVESENSE_GPIOD_HAS_V2_API:INTERNAL=
+//Details about finding PkgConfig
+FIND_PACKAGE_MESSAGE_DETAILS_PkgConfig:INTERNAL=[/usr/bin/pkg-config][v0.29.2()]
+//ADVANCED property for variable: PKG_CONFIG_ARGN
+PKG_CONFIG_ARGN-ADVANCED:INTERNAL=1
+//ADVANCED property for variable: PKG_CONFIG_EXECUTABLE
+PKG_CONFIG_EXECUTABLE-ADVANCED:INTERNAL=1
 

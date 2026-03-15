@@ -1,7 +1,7 @@
 cmake_minimum_required(VERSION 3.16)
 project(mirror_capture C)
 
-include(CheckSymbolExists)
+include(FindPkgConfig)
 
 set(CMAKE_C_STANDARD 17)
 set(CMAKE_C_STANDARD_REQUIRED ON)
@@ -43,17 +43,35 @@ target_link_libraries(mirror_capture_smoke PRIVATE mirror_capture)
 find_path(GPIOD_INCLUDE_DIR gpiod.h)
 find_library(GPIOD_LIBRARY gpiod)
 
+if((NOT GPIOD_INCLUDE_DIR OR NOT GPIOD_LIBRARY) AND PKG_CONFIG_FOUND)
+    pkg_check_modules(GPIOD_PC QUIET libgpiod)
+    if(GPIOD_PC_FOUND)
+        if(NOT GPIOD_INCLUDE_DIR AND GPIOD_PC_INCLUDE_DIRS)
+            list(GET GPIOD_PC_INCLUDE_DIRS 0 GPIOD_INCLUDE_DIR)
+        endif()
+        if(NOT GPIOD_LIBRARY AND GPIOD_PC_LINK_LIBRARIES)
+            list(GET GPIOD_PC_LINK_LIBRARIES 0 GPIOD_LIBRARY)
+        elseif(NOT GPIOD_LIBRARY AND GPIOD_PC_LIBRARY_DIRS)
+            find_library(
+                GPIOD_LIBRARY
+                NAMES gpiod
+                PATHS ${GPIOD_PC_LIBRARY_DIRS}
+                NO_DEFAULT_PATH
+            )
+        endif()
+    endif()
+endif()
+
 if(GPIOD_INCLUDE_DIR AND GPIOD_LIBRARY)
-    set(CMAKE_REQUIRED_INCLUDES ${GPIOD_INCLUDE_DIR})
-    check_symbol_exists(gpiod_chip_request_lines "gpiod.h" COGNITIVESENSE_GPIOD_HAS_V2_API)
-    unset(CMAKE_REQUIRED_INCLUDES)
+    file(READ "${GPIOD_INCLUDE_DIR}/gpiod.h" COGNITIVESENSE_GPIOD_HEADER)
+    string(FIND "${COGNITIVESENSE_GPIOD_HEADER}" "gpiod_chip_request_lines(" COGNITIVESENSE_GPIOD_V2_POS)
 
     message(STATUS "mirror_frame_streamer: LCD support enabled with libgpiod")
     message(STATUS "  gpiod.h: ${GPIOD_INCLUDE_DIR}")
     message(STATUS "  libgpiod: ${GPIOD_LIBRARY}")
     target_include_directories(mirror_frame_streamer PRIVATE ${GPIOD_INCLUDE_DIR})
     target_compile_definitions(mirror_frame_streamer PRIVATE COGNITIVESENSE_HAVE_GPIOD=1)
-    if(COGNITIVESENSE_GPIOD_HAS_V2_API)
+    if(NOT COGNITIVESENSE_GPIOD_V2_POS EQUAL -1)
         message(STATUS "  libgpiod API: v2")
         target_compile_definitions(mirror_frame_streamer PRIVATE COGNITIVESENSE_GPIOD_V2=1)
     else()
