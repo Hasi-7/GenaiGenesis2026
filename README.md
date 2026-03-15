@@ -235,13 +235,22 @@ Enable the LCD by exporting the BCM GPIO pins you wired for `RS`, `E`, and `D4`-
 
 ```bash
 export COGNITIVESENSE_LCD_ENABLE=1
-export COGNITIVESENSE_LCD_RS_PIN=17
-export COGNITIVESENSE_LCD_E_PIN=27
-export COGNITIVESENSE_LCD_D4_PIN=22
-export COGNITIVESENSE_LCD_D5_PIN=23
-export COGNITIVESENSE_LCD_D6_PIN=24
-export COGNITIVESENSE_LCD_D7_PIN=25
+export COGNITIVESENSE_LCD_RS_PIN=26
+export COGNITIVESENSE_LCD_E_PIN=19
+export COGNITIVESENSE_LCD_D4_PIN=13
+export COGNITIVESENSE_LCD_D5_PIN=6
+export COGNITIVESENSE_LCD_D6_PIN=5
+export COGNITIVESENSE_LCD_D7_PIN=11
 ```
+
+Those are BCM GPIO numbers. For the Raspberry Pi header they map to:
+
+- `GPIO26` -> physical pin `37`
+- `GPIO19` -> physical pin `35`
+- `GPIO13` -> physical pin `33`
+- `GPIO6` -> physical pin `31`
+- `GPIO5` -> physical pin `29`
+- `GPIO11` -> physical pin `23`
 
 If your Pi exposes the header lines through a different gpiochip, set it explicitly:
 
@@ -253,12 +262,12 @@ Then start the mirror streamer with the LCD environment enabled:
 
 ```bash
 COGNITIVESENSE_LCD_ENABLE=1 \
-COGNITIVESENSE_LCD_RS_PIN=17 \
-COGNITIVESENSE_LCD_E_PIN=27 \
-COGNITIVESENSE_LCD_D4_PIN=22 \
-COGNITIVESENSE_LCD_D5_PIN=23 \
-COGNITIVESENSE_LCD_D6_PIN=24 \
-COGNITIVESENSE_LCD_D7_PIN=25 \
+COGNITIVESENSE_LCD_RS_PIN=26 \
+COGNITIVESENSE_LCD_E_PIN=19 \
+COGNITIVESENSE_LCD_D4_PIN=13 \
+COGNITIVESENSE_LCD_D5_PIN=6 \
+COGNITIVESENSE_LCD_D6_PIN=5 \
+COGNITIVESENSE_LCD_D7_PIN=11 \
 ./mirror/build/mirror_frame_streamer 192.168.1.10 9000 640 480 15 2>&1 | tee mirror_lcd.log
 ```
 

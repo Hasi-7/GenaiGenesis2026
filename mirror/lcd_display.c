@@ -16,6 +16,12 @@
 #endif
 
 #define LCD_PAGE_INTERVAL_NS 1500000000ULL
+#define LCD_DEFAULT_RS_PIN 26U
+#define LCD_DEFAULT_E_PIN 19U
+#define LCD_DEFAULT_D4_PIN 13U
+#define LCD_DEFAULT_D5_PIN 6U
+#define LCD_DEFAULT_D6_PIN 5U
+#define LCD_DEFAULT_D7_PIN 11U
 
 static uint64_t now_ns(void) {
     struct timespec ts;
@@ -53,6 +59,19 @@ static bool parse_env_pin(const char *name, unsigned int *value) {
     }
     *value = (unsigned int) parsed;
     return true;
+}
+
+static void load_default_pins(MirrorLcdDisplay *display) {
+    if (display == NULL) {
+        return;
+    }
+
+    display->rs_pin = LCD_DEFAULT_RS_PIN;
+    display->e_pin = LCD_DEFAULT_E_PIN;
+    display->d4_pin = LCD_DEFAULT_D4_PIN;
+    display->d5_pin = LCD_DEFAULT_D5_PIN;
+    display->d6_pin = LCD_DEFAULT_D6_PIN;
+    display->d7_pin = LCD_DEFAULT_D7_PIN;
 }
 
 static void copy_lcd_line(char *dest, size_t dest_size, const char *text) {
@@ -428,18 +447,25 @@ void mirror_lcd_init(MirrorLcdDisplay *display) {
     if (!display->requested) {
         return;
     }
+    load_default_pins(display);
 
     if (
-        !parse_env_pin("COGNITIVESENSE_LCD_RS_PIN", &display->rs_pin)
-        || !parse_env_pin("COGNITIVESENSE_LCD_E_PIN", &display->e_pin)
-        || !parse_env_pin("COGNITIVESENSE_LCD_D4_PIN", &display->d4_pin)
-        || !parse_env_pin("COGNITIVESENSE_LCD_D5_PIN", &display->d5_pin)
-        || !parse_env_pin("COGNITIVESENSE_LCD_D6_PIN", &display->d6_pin)
-        || !parse_env_pin("COGNITIVESENSE_LCD_D7_PIN", &display->d7_pin)
+        (getenv("COGNITIVESENSE_LCD_RS_PIN") != NULL
+            && !parse_env_pin("COGNITIVESENSE_LCD_RS_PIN", &display->rs_pin))
+        || (getenv("COGNITIVESENSE_LCD_E_PIN") != NULL
+            && !parse_env_pin("COGNITIVESENSE_LCD_E_PIN", &display->e_pin))
+        || (getenv("COGNITIVESENSE_LCD_D4_PIN") != NULL
+            && !parse_env_pin("COGNITIVESENSE_LCD_D4_PIN", &display->d4_pin))
+        || (getenv("COGNITIVESENSE_LCD_D5_PIN") != NULL
+            && !parse_env_pin("COGNITIVESENSE_LCD_D5_PIN", &display->d5_pin))
+        || (getenv("COGNITIVESENSE_LCD_D6_PIN") != NULL
+            && !parse_env_pin("COGNITIVESENSE_LCD_D6_PIN", &display->d6_pin))
+        || (getenv("COGNITIVESENSE_LCD_D7_PIN") != NULL
+            && !parse_env_pin("COGNITIVESENSE_LCD_D7_PIN", &display->d7_pin))
     ) {
         fprintf(
             stderr,
-            "LCD enabled, but direct GPIO pins are incomplete. Set RS, E, D4, D5, D6, and D7 pin env vars.\n"
+            "LCD enabled, but one or more LCD pin env vars are invalid. Expected BCM GPIO numbers for RS, E, D4, D5, D6, and D7.\n"
         );
         return;
     }
