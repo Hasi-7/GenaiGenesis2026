@@ -53,6 +53,8 @@ class TelemetrySinkProtocol(Protocol):
         self, response: LLMResponse, state: CognitiveState
     ) -> None: ...
 
+    def publish_snapshot(self, jpeg_bytes: bytes, recorded_at: float) -> None: ...
+
 
 class PipelineController:
     """Orchestrates input -> vision/audio -> state -> reasoning."""
@@ -101,6 +103,7 @@ class PipelineController:
 
         # Latest LLM response for UI
         self._last_response: LLMResponse | None = None
+        self._last_snapshot_publish_at = 0.0
         self._waiting_for_frames_since: float | None = None
         self._last_waiting_log_time = 0.0
         self._stop_event = threading.Event()
@@ -182,6 +185,7 @@ class PipelineController:
 
         now = time.time()
         analysis = FrameAnalysis(timestamp=now)
+        self._publish_snapshot_if_due(recorded_at=now)
 
         # 2. Face landmarks
         faces = self._face_detector.detect(rgb_frame)
@@ -470,6 +474,21 @@ class PipelineController:
             should_notify=True,
             severity=severity,
         )
+
+    def _publish_snapshot_if_due(self, *, recorded_at: float) -> None:
+        if self._telemetry_sink is None:
+            return
+
+        now = time.monotonic()
+        if now - self._last_snapshot_publish_at < 1.0:
+            return
+
+        jpeg_bytes = self._screenshot_manager.encode_jpeg()
+        if not jpeg_bytes:
+            return
+
+        self._telemetry_sink.publish_snapshot(jpeg_bytes, recorded_at)
+        self._last_snapshot_publish_at = now
 
     def _cleanup(self) -> None:
         with self._cleanup_lock:

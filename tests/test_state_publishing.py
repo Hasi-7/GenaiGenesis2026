@@ -17,6 +17,7 @@ if str(SERVER_ROOT) not in sys.path:
     sys.path.insert(0, str(SERVER_ROOT))
 
 from server.core.remote_session_runner import RemoteSessionRunner
+from server.core.pipeline_controller import PipelineController
 from server.core.feedback_codec import MAX_INDICATORS, MAX_RECOMMENDATIONS
 from server.input.remote_media_server import RemoteClientSession
 from server.models.types import (
@@ -220,6 +221,36 @@ class RemoteSessionRunnerTests(unittest.TestCase):
 
             controller.request_stop.assert_called_once_with()
             recorder.close.assert_called_once_with()
+
+
+class PipelineControllerSnapshotTests(unittest.TestCase):
+    def test_publish_snapshot_if_due_emits_jpeg(self) -> None:
+        controller = PipelineController.__new__(PipelineController)
+        telemetry_sink = MagicMock()
+        screenshot_manager = MagicMock()
+        screenshot_manager.encode_jpeg.return_value = b"jpeg-bytes"
+        setattr(controller, "_telemetry_sink", telemetry_sink)
+        setattr(controller, "_screenshot_manager", screenshot_manager)
+        setattr(controller, "_last_snapshot_publish_at", 0.0)
+
+        with patch("server.core.pipeline_controller.time.monotonic", return_value=10.0):
+            getattr(controller, "_publish_snapshot_if_due")(recorded_at=123.0)
+
+        telemetry_sink.publish_snapshot.assert_called_once_with(b"jpeg-bytes", 123.0)
+
+    def test_publish_snapshot_if_due_respects_rate_limit(self) -> None:
+        controller = PipelineController.__new__(PipelineController)
+        telemetry_sink = MagicMock()
+        screenshot_manager = MagicMock()
+        screenshot_manager.encode_jpeg.return_value = b"jpeg-bytes"
+        setattr(controller, "_telemetry_sink", telemetry_sink)
+        setattr(controller, "_screenshot_manager", screenshot_manager)
+        setattr(controller, "_last_snapshot_publish_at", 10.0)
+
+        with patch("server.core.pipeline_controller.time.monotonic", return_value=10.5):
+            getattr(controller, "_publish_snapshot_if_due")(recorded_at=124.0)
+
+        telemetry_sink.publish_snapshot.assert_not_called()
 
 
 if __name__ == "__main__":

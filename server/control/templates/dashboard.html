@@ -35,7 +35,7 @@
       .device-list, .feedback-list, .timeline-list, .unclaimed-list { display: flex; flex-direction: column; gap: 12px; }
       .card { background: var(--panel2); border-radius: 14px; padding: 14px; border: 1px solid transparent; }
       .device-card.active { border-color: rgba(94, 168, 255, 0.55); }
-      .device-header, .timeline-header, .feedback-header, .unclaimed-header { display: flex; justify-content: space-between; gap: 12px; align-items: center; }
+      .panel-header, .device-header, .timeline-header, .feedback-header, .unclaimed-header { display: flex; justify-content: space-between; gap: 12px; align-items: center; }
       .metric { background: var(--panel2); border-radius: 14px; padding: 14px; }
       .metric strong { display: block; margin-top: 6px; font-size: 1.45rem; }
       .caption, .tiny { color: var(--muted); font-size: 0.85rem; }
@@ -62,19 +62,36 @@
       .split { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
       .key-value { grid-template-columns: 1fr auto; }
       .message { padding: 10px 12px; border-radius: 12px; background: rgba(94, 168, 255, 0.12); color: #d8e9ff; }
+      code { font-family: "SFMono-Regular", Consolas, "Liberation Mono", monospace; font-size: 0.88em; }
       .preview {
         width: 100%;
         aspect-ratio: 16 / 9;
-        border-radius: 16px;
-        border: 1px solid var(--line);
+        border-radius: 0;
+        border: 0;
         background: #0d141c;
         object-fit: cover;
+        display: block;
       }
       .rename-form { display: grid; grid-template-columns: 1fr auto; gap: 10px; margin-top: 12px; }
       .rename-form button { width: auto; min-width: 120px; }
+      .device-grid { display: grid; gap: 14px; grid-template-columns: repeat(2, minmax(0, 1fr)); }
+      .device-card { display: flex; flex-direction: column; gap: 12px; text-decoration: none; color: inherit; border-color: var(--line); transition: transform 140ms ease, border-color 140ms ease, box-shadow 140ms ease; }
+      .device-card:hover { transform: translateY(-1px); border-color: rgba(94, 168, 255, 0.45); }
+      .device-card.active { border-color: rgba(94, 168, 255, 0.65); box-shadow: 0 0 0 1px rgba(94, 168, 255, 0.18) inset; }
+      .device-thumb-shell, .preview-shell { position: relative; overflow: hidden; border-radius: 16px; border: 1px solid var(--line); background: #0d141c; }
+      .device-thumb-shell { aspect-ratio: 16 / 9; }
+      .device-thumb { width: 100%; height: 100%; object-fit: cover; display: block; }
+      .thumb-empty, .preview-empty { width: 100%; aspect-ratio: 16 / 9; display: flex; align-items: center; justify-content: center; text-align: center; padding: 18px; color: var(--muted); background: radial-gradient(circle at top, rgba(94, 168, 255, 0.18), transparent 58%), #0d141c; }
+      .device-chip { position: absolute; top: 10px; left: 10px; border-radius: 999px; padding: 6px 10px; font-size: 0.78rem; border: 1px solid rgba(255, 255, 255, 0.1); background: rgba(9, 16, 24, 0.72); backdrop-filter: blur(10px); }
+      .device-chip.active { border-color: rgba(94, 168, 255, 0.55); background: rgba(94, 168, 255, 0.18); }
+      .device-console { border-color: rgba(94, 168, 255, 0.28); background: linear-gradient(180deg, rgba(94, 168, 255, 0.06), rgba(255, 255, 255, 0.01)); }
+      .device-console-body { display: grid; grid-template-columns: minmax(0, 1.35fr) minmax(320px, 0.85fr); gap: 16px; }
+      .identity-list { display: grid; grid-template-columns: 1fr auto; gap: 10px 12px; margin-top: 12px; }
+      .inline-note { color: var(--muted); font-size: 0.88rem; line-height: 1.5; }
       @media (max-width: 980px) {
-        .two, .summary-grid, .split, .auth-grid, .rename-form { grid-template-columns: 1fr; }
+        .two, .summary-grid, .split, .auth-grid, .rename-form, .device-grid, .device-console-body, .device-stats { grid-template-columns: 1fr; }
         .periods { grid-template-columns: repeat(2, auto); }
+        .panel-header, .device-header, .timeline-header, .feedback-header, .unclaimed-header { align-items: start; flex-direction: column; }
       }
     </style>
   </head>
@@ -87,7 +104,7 @@
         </div>
         <div class="periods">
           {% for period in periods %}
-            <a class="period-link {% if period == days %}active{% endif %}" href="/?days={{ period }}{% if selected_device %}&device={{ selected_device.deviceKey }}{% endif %}">
+            <a class="period-link {% if period == days %}active{% endif %}" href="/?days={{ period }}{% if selected_device %}&device={{ selected_device.deviceKey }}#device-console{% endif %}">
               {% if period == 1 %}24h{% else %}{{ period }}d{% endif %}
             </a>
           {% endfor %}
@@ -166,7 +183,7 @@
                         <span class="badge {{ item.severity }}">{{ item.triggerKind }}</span>
                       </div>
                       <p style="margin-top:10px; line-height:1.45;">{{ item.text }}</p>
-                      <div class="tiny" style="margin-top:10px;">{{ item.sourceKind }} · {{ item.recordedAt }}</div>
+                      <div class="tiny" style="margin-top:10px;">{{ item.sourceKind }} · {{ item.recordedAt|datetime }}</div>
                     </div>
                   {% else %}
                     <div class="empty">No feedback recorded for this period.</div>
@@ -180,97 +197,169 @@
         </div>
       </section>
 
-      <section class="row two">
-        <div class="panel stack">
+      <section class="panel stack">
+        <div class="panel-header">
           <div>
-            <h2>Your Devices</h2>
-            <p class="muted">Compare claimed devices over the selected period.</p>
+            <h2>Claimed Devices</h2>
+            <p class="muted">Your claimed devices live here. Pick one to open its live preview, device-only timeline, and recent feedback.</p>
           </div>
-          <div class="device-list">
-            {% for device in devices %}
-              <a class="card device-card {% if selected_device and selected_device.deviceKey == device.deviceKey %}active{% endif %}" href="/?days={{ days }}&device={{ device.deviceKey }}" style="text-decoration:none; color:inherit;">
-                <div class="device-header">
-                  <div>
-                    <strong>{{ device.displayName }}</strong>
-                    <div class="tiny">{{ device.sourceKind }} · last state: {{ device.lastState }}</div>
-                  </div>
-                  <strong class="score {% if device.overallScore >= 80 %}good{% elif device.overallScore >= 55 %}warn{% else %}bad{% endif %}">{{ device.overallScore }}</strong>
-                </div>
-                <div class="bar-row">
-                  {% set total = device.sampleCount if device.sampleCount else 1 %}
-                  {% for label, count in device.stateBreakdown.items() %}
-                    <div class="{{ label if label in ['focused','distracted','fatigued','stressed'] else 'unknown' }}" style="width: {{ (count / total) * 100 }}%;"></div>
-                  {% endfor %}
-                </div>
-                <div class="key-value">
-                  <span>Focused share</span><strong>{{ (device.focusedShare * 100)|round|int }}%</strong>
-                  <span>Samples</span><strong>{{ device.sampleCount }}</strong>
-                  <span>Notifications</span><strong>{{ device.notificationCount }}</strong>
-                  <span>Avg confidence</span><strong>{{ (device.averageConfidence * 100)|round|int }}%</strong>
-                </div>
-              </a>
-            {% else %}
-              <div class="empty">No claimed devices yet.</div>
-            {% endfor %}
-          </div>
-        </div>
-
-        <div class="panel stack">
-          <div>
-            <h2>Selected Device</h2>
-            <p class="muted">Inspect one device more deeply across the selected period.</p>
-          </div>
-          {% if selected_device %}
-            <div class="summary-grid" style="grid-template-columns: repeat(4, minmax(0, 1fr));">
-              <div class="metric"><div class="caption">Score</div><strong class="score {% if selected_device.overallScore >= 80 %}good{% elif selected_device.overallScore >= 55 %}warn{% else %}bad{% endif %}">{{ selected_device.overallScore }}</strong></div>
-              <div class="metric"><div class="caption">Focused share</div><strong>{{ (selected_device.focusedShare * 100)|round|int }}%</strong></div>
-              <div class="metric"><div class="caption">Dominant state</div><strong>{{ selected_device.dominantState }}</strong></div>
-              <div class="metric"><div class="caption">Notifications</div><strong>{{ selected_device.notificationCount }}</strong></div>
-            </div>
-            <div>
-              <h3>Live Preview</h3>
-              <p class="muted" style="margin-top:6px; margin-bottom:10px;">Latest snapshot refreshed automatically from the analysis backend.</p>
-              <img
-                id="device-preview"
-                class="preview"
-                src="/devices/{{ selected_device.deviceKey }}/snapshot.jpg?ts={{ selected_device.lastSeenAt }}"
-                alt="Live preview for {{ selected_device.displayName }}"
-              />
-            </div>
-            <div>
-              <h3>Rename Device</h3>
-              <form class="rename-form" method="post" action="/devices/{{ selected_device.deviceKey }}/rename">
-                <input name="nickname" value="{{ selected_device.displayName }}" placeholder="Friendly name" required />
-                <button type="submit">Save Name</button>
-              </form>
-            </div>
-            <div>
-              <h3>Recent device feedback</h3>
-              <div class="feedback-list">
-                {% for item in selected_device.recentFeedback %}
-                  <div class="card">
-                    <div class="feedback-header">
-                      <span class="badge {{ item.severity }}">{{ item.triggerKind }}</span>
-                      <span class="tiny">{{ item.recordedAt }}</span>
-                    </div>
-                    <p style="margin-top:10px; line-height:1.45;">{{ item.text }}</p>
-                  </div>
-                {% else %}
-                  <div class="empty">No recent feedback for this device.</div>
-                {% endfor %}
-              </div>
-            </div>
-          {% else %}
-            <div class="empty">Pick a device from the left to inspect it.</div>
+          {% if user and devices %}
+            <span class="pill">{{ devices|length }} claimed</span>
           {% endif %}
         </div>
+        {% if user %}
+          {% if devices %}
+            <div class="device-grid">
+              {% for device in devices %}
+                <a class="card device-card {% if selected_device and selected_device.deviceKey == device.deviceKey %}active{% endif %}" href="/?days={{ days }}&device={{ device.deviceKey }}#device-console">
+                  <div class="device-thumb-shell">
+                    <img
+                      class="device-thumb"
+                      src="/devices/{{ device.deviceKey }}/snapshot.jpg?ts={{ device.lastSeenAt }}"
+                      alt="Preview for {{ device.displayName }}"
+                      onload="this.hidden=false; this.nextElementSibling.hidden=true;"
+                      onerror="this.hidden=true; this.nextElementSibling.hidden=false;"
+                    />
+                    <div class="thumb-empty" hidden>Preview appears here once {{ device.displayName }} uploads frames.</div>
+                    <span class="device-chip {% if selected_device and selected_device.deviceKey == device.deviceKey %}active{% endif %}">
+                      {% if selected_device and selected_device.deviceKey == device.deviceKey %}Viewing now{% else %}Open live view{% endif %}
+                    </span>
+                  </div>
+                  <div class="device-header">
+                    <div>
+                      <strong>{{ device.displayName }}</strong>
+                      <div class="tiny"><code>{{ device.deviceKey }}</code></div>
+                      <div class="tiny">{{ device.sourceKind }} · last seen {{ device.lastSeenAt|datetime }}</div>
+                    </div>
+                    <strong class="score {% if device.overallScore >= 80 %}good{% elif device.overallScore >= 55 %}warn{% else %}bad{% endif %}">{{ device.overallScore }}</strong>
+                  </div>
+                  <div class="bar-row">
+                    {% set total = device.sampleCount if device.sampleCount else 1 %}
+                    {% for label, count in device.stateBreakdown.items() %}
+                      <div class="{{ label if label in ['focused','distracted','fatigued','stressed'] else 'unknown' }}" style="width: {{ (count / total) * 100 }}%;"></div>
+                    {% endfor %}
+                  </div>
+                  <div class="key-value">
+                    <span>Focused share</span><strong>{{ (device.focusedShare * 100)|round|int }}%</strong>
+                    <span>Samples</span><strong>{{ device.sampleCount }}</strong>
+                    <span>Notifications</span><strong>{{ device.notificationCount }}</strong>
+                    <span>Last state</span><strong>{{ device.lastState }}</strong>
+                  </div>
+                </a>
+              {% endfor %}
+            </div>
+
+            {% if selected_device %}
+              <div id="device-console" class="card device-console stack">
+                <div class="panel-header">
+                  <div>
+                    <h3>Live Device Console</h3>
+                    <p class="muted">Now viewing {{ selected_device.displayName }}. Everything in this console is specific to this claimed device.</p>
+                  </div>
+                  <span class="pill">Refreshes every 1.5s</span>
+                </div>
+                <div class="device-console-body">
+                  <div class="stack">
+                    <div>
+                      <div class="preview-shell">
+                        <img
+                          id="device-preview"
+                          class="preview"
+                          src="/devices/{{ selected_device.deviceKey }}/snapshot.jpg?ts={{ selected_device.lastSeenAt }}"
+                          alt="Live preview for {{ selected_device.displayName }}"
+                          onload="this.hidden=false; document.getElementById('device-preview-empty').hidden=true;"
+                          onerror="this.hidden=true; document.getElementById('device-preview-empty').hidden=false;"
+                        />
+                        <div id="device-preview-empty" class="preview-empty" hidden>Waiting for {{ selected_device.displayName }} to send a recent frame. Once frames arrive, this live preview updates automatically.</div>
+                      </div>
+                      <p class="inline-note" style="margin-top:10px;">This preview shows the latest frame saved by the backend for this device. There is not a separate archived video player yet.</p>
+                    </div>
+                    <div class="device-stats" style="grid-template-columns: repeat(5, minmax(0, 1fr));">
+                      <div class="metric"><div class="caption">Score</div><strong class="score {% if selected_device.overallScore >= 80 %}good{% elif selected_device.overallScore >= 55 %}warn{% else %}bad{% endif %}">{{ selected_device.overallScore }}</strong></div>
+                      <div class="metric"><div class="caption">Focused share</div><strong>{{ (selected_device.focusedShare * 100)|round|int }}%</strong></div>
+                      <div class="metric"><div class="caption">Dominant state</div><strong>{{ selected_device.dominantState }}</strong></div>
+                      <div class="metric"><div class="caption">Samples</div><strong>{{ selected_device.sampleCount }}</strong></div>
+                      <div class="metric"><div class="caption">Notifications</div><strong>{{ selected_device.notificationCount }}</strong></div>
+                    </div>
+                    <div class="stack">
+                      <div>
+                        <h3>Device Timeline</h3>
+                        <p class="muted">Trend and state mix for {{ selected_device.displayName }} only.</p>
+                      </div>
+                      <div class="timeline-list">
+                        {% for point in selected_device.timeline %}
+                          <div class="card">
+                            <div class="timeline-header">
+                              <strong>{{ point.day }}</strong>
+                              <strong class="score {% if point.score >= 80 %}good{% elif point.score >= 55 %}warn{% else %}bad{% endif %}">{{ point.score }}</strong>
+                            </div>
+                            <div class="bar-row">
+                              {% set total = point.sampleCount if point.sampleCount else 1 %}
+                              {% for label, count in point.states.items() %}
+                                <div class="{{ label if label in ['focused','distracted','fatigued','stressed'] else 'unknown' }}" style="width: {{ (count / total) * 100 }}%;"></div>
+                              {% endfor %}
+                            </div>
+                            <div class="tiny" style="margin-top:10px;">{{ point.sampleCount }} samples</div>
+                          </div>
+                        {% else %}
+                          <div class="empty">No device-specific timeline data yet.</div>
+                        {% endfor %}
+                      </div>
+                    </div>
+                  </div>
+
+                  <div class="stack">
+                    <div class="card">
+                      <h3>Device Identity</h3>
+                      <div class="identity-list">
+                        <span>Claimed device</span><strong>{{ selected_device.displayName }}</strong>
+                        <span>Device key</span><code>{{ selected_device.deviceKey }}</code>
+                        <span>Source</span><strong>{{ selected_device.sourceKind }}</strong>
+                        <span>Last seen</span><strong>{{ selected_device.lastSeenAt|datetime }}</strong>
+                        <span>Last state</span><strong>{{ selected_device.lastState }}</strong>
+                        <span>Avg confidence</span><strong>{{ (selected_device.averageConfidence * 100)|round|int }}%</strong>
+                      </div>
+                    </div>
+                    <div>
+                      <h3>Rename Device</h3>
+                      <form class="rename-form" method="post" action="/devices/{{ selected_device.deviceKey }}/rename">
+                        <input name="nickname" value="{{ selected_device.displayName }}" placeholder="Friendly name" required />
+                        <button type="submit">Save Name</button>
+                      </form>
+                    </div>
+                    <div>
+                      <h3>Recent device feedback</h3>
+                      <div class="feedback-list">
+                        {% for item in selected_device.recentFeedback %}
+                          <div class="card">
+                            <div class="feedback-header">
+                              <span class="badge {{ item.severity }}">{{ item.triggerKind }}</span>
+                              <span class="tiny">{{ item.recordedAt|datetime }}</span>
+                            </div>
+                            <p style="margin-top:10px; line-height:1.45;">{{ item.text }}</p>
+                          </div>
+                        {% else %}
+                          <div class="empty">No recent feedback for this device.</div>
+                        {% endfor %}
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            {% endif %}
+          {% else %}
+            <div class="empty">No claimed devices yet. Claim one from the unclaimed list below and it will show up here with its live preview and device timeline.</div>
+          {% endif %}
+        {% else %}
+          <div class="empty">Sign in to see the devices already claimed to your account.</div>
+        {% endif %}
       </section>
 
       <section class="row two">
         <div class="panel stack">
           <div>
-            <h2>Timeline</h2>
-            <p class="muted">Daily score trend and state mix over the selected period.</p>
+            <h2>All Claimed Devices Timeline</h2>
+            <p class="muted">Daily score trend and state mix across every claimed device in the selected period.</p>
           </div>
           <div class="timeline-list">
             {% for point in timeline %}
@@ -305,7 +394,7 @@
                   <div>
                     <strong>{{ device.display_name }}</strong>
                     <div class="tiny">{{ device.device_key }}</div>
-                    <div class="tiny">{{ device.source_kind }} · last seen {{ device.last_seen_at }}</div>
+                     <div class="tiny">{{ device.source_kind }} · last seen {{ device.last_seen_at|datetime }}</div>
                   </div>
                   {% if user %}
                     <form method="post" action="/claim-device" style="width:auto; min-width:150px;">
