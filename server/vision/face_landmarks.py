@@ -51,7 +51,7 @@ from config.third_party import (
 )
 from numpy.typing import NDArray
 
-_MODEL_PATH = os.path.join(os.path.dirname(__file__), "face_landmarker_v2_with_blendshapes.task")
+_MODEL_PATH = os.path.join(os.path.dirname(__file__), "face_landmarker_v2_with_blendshapes.task").replace("\\", "/")
 mp = load_mediapipe()
 mp_tasks: MediaPipeTasksPythonProtocol = load_mediapipe_tasks_python()
 mp_vision: MediaPipeVisionProtocol = load_mediapipe_tasks_vision()
