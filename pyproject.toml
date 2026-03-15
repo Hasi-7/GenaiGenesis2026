@@ -15,6 +15,7 @@ dependencies = [
     "transformers>=5.3.0",
     "pydantic-settings>=2.13.1",
     "soundfile>=0.13.1",
+    "rich>=14.3.3",
 ]
 
 [project.scripts]

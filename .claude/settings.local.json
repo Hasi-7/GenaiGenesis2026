@@ -1,0 +1,10 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(cd:*)",
+      "Bash(uv run:*)",
+      "Bash(start:*)",
+      "Bash(git commit:*)"
+    ]
+  }
+}
