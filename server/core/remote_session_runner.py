@@ -12,8 +12,8 @@ from openai import OpenAI
 from samples.llm_engine import LLMEngine, RateLimiter
 from state.state_tracker import LLMStateTracker, StateTracker
 
-from control.store import get_control_store
-from control.telemetry_recorder import (
+from server.control.store import get_control_store
+from server.control.telemetry_recorder import (
     CompositeTelemetrySink,
     DeviceIdentity,
     TelemetryRecorder,

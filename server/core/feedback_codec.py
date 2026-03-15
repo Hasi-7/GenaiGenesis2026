@@ -123,12 +123,13 @@ def _sorted_unique_signal_labels(state: CognitiveState) -> list[str]:
 
 
 def _fallback_indicator(state_label: CognitiveStateLabel) -> int | None:
-    if state_label is CognitiveStateLabel.FATIGUED:
+    label_value = state_label.value
+    if label_value == CognitiveStateLabel.FATIGUED.value:
         return INDICATOR_BLINK_ELEVATED
-    if state_label is CognitiveStateLabel.STRESSED:
+    if label_value == CognitiveStateLabel.STRESSED.value:
         return INDICATOR_EXPRESSION_TENSE
-    if state_label is CognitiveStateLabel.DISTRACTED:
+    if label_value == CognitiveStateLabel.DISTRACTED.value:
         return INDICATOR_GAZE_DISTRACTED
-    if state_label is CognitiveStateLabel.FOCUSED:
+    if label_value == CognitiveStateLabel.FOCUSED.value:
         return INDICATOR_GAZE_FOCUSED
     return None
