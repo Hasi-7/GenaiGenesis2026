@@ -1,0 +1,1 @@
+/usr/bin/cc CMakeFiles/mirror_frame_streamer.dir/frame_streamer.c.o CMakeFiles/mirror_frame_streamer.dir/lcd_display.c.o -o mirror_frame_streamer  /usr/lib/x86_64-linux-gnu/libgpiod.so 

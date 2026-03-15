@@ -101,28 +101,47 @@ static void cleanup_feedback_pages(MirrorLcdDisplay *display) {
 }
 
 #ifdef COGNITIVESENSE_HAVE_GPIOD
+#ifdef COGNITIVESENSE_GPIOD_V2
+typedef struct MirrorGpiodLineHandle {
+    struct gpiod_line_request *request;
+    unsigned int offset;
+} MirrorGpiodLineHandle;
+
+static MirrorGpiodLineHandle *as_line_handle(void *line) {
+    return (MirrorGpiodLineHandle *) line;
+}
+#else
 static struct gpiod_line *as_line(void *line) {
     return (struct gpiod_line *) line;
 }
+#endif
 
 static struct gpiod_chip *as_chip(void *chip) {
     return (struct gpiod_chip *) chip;
 }
 
 static void release_lines(MirrorLcdDisplay *display) {
-    struct gpiod_line *lines[] = {
-        as_line(display->rs_line),
-        as_line(display->e_line),
-        as_line(display->d4_line),
-        as_line(display->d5_line),
-        as_line(display->d6_line),
-        as_line(display->d7_line),
+    void *lines[] = {
+        display->rs_line,
+        display->e_line,
+        display->d4_line,
+        display->d5_line,
+        display->d6_line,
+        display->d7_line,
     };
     size_t index;
 
     for (index = 0U; index < sizeof(lines) / sizeof(lines[0]); ++index) {
         if (lines[index] != NULL) {
+#ifdef COGNITIVESENSE_GPIOD_V2
+            MirrorGpiodLineHandle *handle = as_line_handle(lines[index]);
+            if (handle->request != NULL) {
+                gpiod_line_request_release(handle->request);
+            }
+            free(handle);
+#else
             gpiod_line_release(lines[index]);
+#endif
         }
     }
 
@@ -135,7 +154,22 @@ static void release_lines(MirrorLcdDisplay *display) {
 }
 
 static bool set_line_value(void *line, int value) {
-    return line != NULL && gpiod_line_set_value(as_line(line), value) == 0;
+    if (line == NULL) {
+        return false;
+    }
+#ifdef COGNITIVESENSE_GPIOD_V2
+    {
+        MirrorGpiodLineHandle *handle = as_line_handle(line);
+        return handle->request != NULL
+            && gpiod_line_request_set_value(
+                handle->request,
+                handle->offset,
+                value ? GPIOD_LINE_VALUE_ACTIVE : GPIOD_LINE_VALUE_INACTIVE
+            ) == 0;
+    }
+#else
+    return gpiod_line_set_value(as_line(line), value) == 0;
+#endif
 }
 
 static bool pulse_enable(MirrorLcdDisplay *display) {
@@ -205,20 +239,92 @@ static bool request_output_line(
     const char *consumer,
     void **target
 ) {
-    struct gpiod_line *line;
-
     if (chip == NULL || target == NULL) {
         return false;
     }
 
-    line = gpiod_chip_get_line(chip, offset);
-    if (line == NULL) {
-        return false;
+#ifdef COGNITIVESENSE_GPIOD_V2
+    {
+        struct gpiod_line_settings *line_settings = gpiod_line_settings_new();
+        struct gpiod_line_config *line_config = gpiod_line_config_new();
+        struct gpiod_request_config *request_config = gpiod_request_config_new();
+        struct gpiod_line_request *request = NULL;
+        MirrorGpiodLineHandle *handle = NULL;
+        bool ok = false;
+
+        if (
+            line_settings == NULL
+            || line_config == NULL
+            || request_config == NULL
+        ) {
+            goto cleanup_v2_request;
+        }
+        if (
+            gpiod_line_settings_set_direction(
+                line_settings,
+                GPIOD_LINE_DIRECTION_OUTPUT
+            ) != 0
+        ) {
+            goto cleanup_v2_request;
+        }
+        if (
+            gpiod_line_settings_set_output_value(
+                line_settings,
+                GPIOD_LINE_VALUE_INACTIVE
+            ) != 0
+        ) {
+            goto cleanup_v2_request;
+        }
+        if (
+            gpiod_line_config_add_line_settings(
+                line_config,
+                &offset,
+                1U,
+                line_settings
+            ) != 0
+        ) {
+            goto cleanup_v2_request;
+        }
+        gpiod_request_config_set_consumer(request_config, consumer);
+        request = gpiod_chip_request_lines(chip, request_config, line_config);
+        if (request == NULL) {
+            goto cleanup_v2_request;
+        }
+
+        handle = calloc(1U, sizeof(*handle));
+        if (handle == NULL) {
+            goto cleanup_v2_request;
+        }
+        handle->request = request;
+        handle->offset = offset;
+        *target = handle;
+        ok = true;
+
+cleanup_v2_request:
+        gpiod_request_config_free(request_config);
+        gpiod_line_config_free(line_config);
+        gpiod_line_settings_free(line_settings);
+        if (!ok) {
+            if (request != NULL) {
+                gpiod_line_request_release(request);
+            }
+            free(handle);
+        }
+        return ok;
     }
-    if (gpiod_line_request_output(line, consumer, 0) != 0) {
-        return false;
+#else
+    {
+        struct gpiod_line *line = gpiod_chip_get_line(chip, offset);
+
+        if (line == NULL) {
+            return false;
+        }
+        if (gpiod_line_request_output(line, consumer, 0) != 0) {
+            return false;
+        }
+        *target = line;
     }
-    *target = line;
+#endif
     return true;
 }
 
@@ -227,6 +333,8 @@ static bool open_chip(MirrorLcdDisplay *display) {
     const char *chip_candidates[] = {
         configured_path,
         "/dev/gpiochip4",
+        "/dev/gpiochip3",
+        "/dev/gpiochip2",
         "/dev/gpiochip0",
         "/dev/gpiochip1",
     };
@@ -345,6 +453,17 @@ void mirror_lcd_init(MirrorLcdDisplay *display) {
     copy_lcd_line(display->rendered_line_1, sizeof(display->rendered_line_1), "");
     copy_lcd_line(display->rendered_line_2, sizeof(display->rendered_line_2), "");
     if (display->enabled) {
+        fprintf(
+            stderr,
+            "LCD initialized on %s (RS=%u E=%u D4=%u D5=%u D6=%u D7=%u).\n",
+            display->chip_path,
+            display->rs_pin,
+            display->e_pin,
+            display->d4_pin,
+            display->d5_pin,
+            display->d6_pin,
+            display->d7_pin
+        );
         mirror_lcd_refresh(display);
     }
 #else

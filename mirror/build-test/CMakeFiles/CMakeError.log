@@ -1,0 +1,32 @@
+Determining if the gpiod_chip_request_lines exist failed with the following output:
+Change Dir: /mnt/c/Personal/VSCode/GenaiGenesis2026/mirror/build-test/CMakeFiles/CMakeTmp
+
+Run Build Command(s):/usr/bin/gmake -f Makefile cmTC_7dcac/fast && /usr/bin/gmake  -f CMakeFiles/cmTC_7dcac.dir/build.make CMakeFiles/cmTC_7dcac.dir/build
+gmake[1]: Entering directory '/mnt/c/Personal/VSCode/GenaiGenesis2026/mirror/build-test/CMakeFiles/CMakeTmp'
+Building C object CMakeFiles/cmTC_7dcac.dir/CheckSymbolExists.c.o
+/usr/bin/cc   -std=c17 -o CMakeFiles/cmTC_7dcac.dir/CheckSymbolExists.c.o -c /mnt/c/Personal/VSCode/GenaiGenesis2026/mirror/build-test/CMakeFiles/CMakeTmp/CheckSymbolExists.c
+/mnt/c/Personal/VSCode/GenaiGenesis2026/mirror/build-test/CMakeFiles/CMakeTmp/CheckSymbolExists.c: In function ‘main’:
+/mnt/c/Personal/VSCode/GenaiGenesis2026/mirror/build-test/CMakeFiles/CMakeTmp/CheckSymbolExists.c:8:19: error: ‘gpiod_chip_request_lines’ undeclared (first use in this function); did you mean ‘gpiod_chip_get_lines’?
+    8 |   return ((int*)(&gpiod_chip_request_lines))[argc];
+      |                   ^~~~~~~~~~~~~~~~~~~~~~~~
+      |                   gpiod_chip_get_lines
+/mnt/c/Personal/VSCode/GenaiGenesis2026/mirror/build-test/CMakeFiles/CMakeTmp/CheckSymbolExists.c:8:19: note: each undeclared identifier is reported only once for each function it appears in
+gmake[1]: *** [CMakeFiles/cmTC_7dcac.dir/build.make:78: CMakeFiles/cmTC_7dcac.dir/CheckSymbolExists.c.o] Error 1
+gmake[1]: Leaving directory '/mnt/c/Personal/VSCode/GenaiGenesis2026/mirror/build-test/CMakeFiles/CMakeTmp'
+gmake: *** [Makefile:127: cmTC_7dcac/fast] Error 2
+
+
+File /mnt/c/Personal/VSCode/GenaiGenesis2026/mirror/build-test/CMakeFiles/CMakeTmp/CheckSymbolExists.c:
+/* */
+#include <gpiod.h>
+
+int main(int argc, char** argv)
+{
+  (void)argv;
+#ifndef gpiod_chip_request_lines
+  return ((int*)(&gpiod_chip_request_lines))[argc];
+#else
+  (void)argc;
+  return 0;
+#endif
+}

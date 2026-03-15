@@ -468,8 +468,6 @@ class LLMStateTracker:
                         ],
                     },
                 ],
-                max_tokens=300,
-                temperature=0.3,
                 stream=True,
                 stream_options={"include_usage": True},
             )

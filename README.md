@@ -218,10 +218,18 @@ The Raspberry Pi mirror streamer can now mirror server state and LLM feedback on
 Build dependency on the Pi:
 
 ```bash
-sudo apt install libgpiod-dev
-cmake -S mirror -B mirror/build
+sudo apt install libgpiod-dev gpiod
+cmake -S mirror -B mirror/build -DCOGNITIVESENSE_REQUIRE_LCD=ON
 cmake --build mirror/build
 ```
+
+When CMake is configured correctly, it should print a line like:
+
+```text
+mirror_frame_streamer: LCD support enabled with libgpiod
+```
+
+If that line does not appear, the LCD code is not compiled into the binary.
 
 Enable the LCD by exporting the BCM GPIO pins you wired for `RS`, `E`, and `D4`-`D7`:
 
@@ -241,7 +249,32 @@ If your Pi exposes the header lines through a different gpiochip, set it explici
 export COGNITIVESENSE_LCD_GPIO_CHIP=/dev/gpiochip4
 ```
 
-Then start the mirror streamer normally. The first line shows the current analyzed state, and incoming LLM feedback pages across the display automatically.
+Then start the mirror streamer with the LCD environment enabled:
+
+```bash
+COGNITIVESENSE_LCD_ENABLE=1 \
+COGNITIVESENSE_LCD_RS_PIN=17 \
+COGNITIVESENSE_LCD_E_PIN=27 \
+COGNITIVESENSE_LCD_D4_PIN=22 \
+COGNITIVESENSE_LCD_D5_PIN=23 \
+COGNITIVESENSE_LCD_D6_PIN=24 \
+COGNITIVESENSE_LCD_D7_PIN=25 \
+./mirror/build/mirror_frame_streamer 192.168.1.10 9000 640 480 15 2>&1 | tee mirror_lcd.log
+```
+
+On startup, look for:
+
+```text
+LCD initialized on /dev/gpiochipX ...
+```
+
+If you instead see one of these messages, the LCD init path is not active yet:
+
+- `LCD enabled, but libgpiod support was not compiled in`
+- `LCD enabled, but no gpiochip could be opened`
+- `LCD line request failed`
+
+Once initialized, the first line shows the current analyzed state, and incoming LLM feedback is written onto the display.
 
 ## Control Website Live Feeds
 

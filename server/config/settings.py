@@ -23,7 +23,7 @@ class CognitiveSenseSettings(BaseSettings):
     target_fps: int = 15
     llm_state_tracker_min_interval: float = 5.0
     llm_state_tracker_cooldown: float = 5.0
-    llm_state_tracker_model: str = "gpt-4.1-mini"
+    llm_state_tracker_model: str = "gpt-5-mini"
     llm_feedback_model: str = "gpt-4.1-nano"
     llm_feedback_cooldown: float = 10.0
 

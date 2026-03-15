@@ -98,8 +98,6 @@ class LLMEngine:
                 {"role": "system", "content": _SYSTEM_PROMPT},
                 {"role": "user", "content": user_msg},
             ],
-            max_tokens=200,
-            temperature=0.7,
         )
 
         self._rate_limiter.record_call()

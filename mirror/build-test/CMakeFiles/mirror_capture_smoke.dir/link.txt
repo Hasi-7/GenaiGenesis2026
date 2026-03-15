@@ -1,0 +1,1 @@
+/usr/bin/cc CMakeFiles/mirror_capture_smoke.dir/camera_capture_smoke.c.o -o mirror_capture_smoke  libmirror_capture.a -lpthread 
