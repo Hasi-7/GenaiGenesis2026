@@ -167,6 +167,11 @@ def main() -> None:
         and config.input_source is InputSource.REMOTE_MEDIA
     ):
         config.remote_media_port = settings.cognitivesense_server_port
+    if (
+        settings.cognitivesense_server_host is not None
+        and config.input_source is InputSource.REMOTE_MEDIA
+    ):
+        config.remote_media_host = settings.cognitivesense_server_host
 
     if config.input_source is InputSource.REMOTE_MEDIA:
         _kill_processes_using_ports(config.remote_media_port)
