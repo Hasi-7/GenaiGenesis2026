@@ -237,7 +237,7 @@ energy level.
 2. The transition must always be true.
 
 Respond in exactly this JSON:
-{"emotional_summary": "1-2 sentence observation of current emotional state", \
+{"emotional_summary": "1-2 sentence observation of current emotional state, addressing the user", \
 "transition": true, "new_state": "focused|fatigued|stressed|distracted", \
 "confidence": 0.0-1.0, "reasoning": "brief explanation, referencing temporal \
 persistence if transition is true"}
@@ -598,6 +598,7 @@ class LLMStateTracker:
             previous_state=previous,
             new_state=new_state,
             transition_time=now,
+            feedback_text=summary or None,
         )
 
 
