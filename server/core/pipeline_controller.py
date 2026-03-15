@@ -21,7 +21,7 @@ from models.types import (
     PipelineConfig,
     SustainedStateAlert,
 )
-from server.samples.llm_engine import LLMEngine
+from samples.llm_engine import LLMEngine
 from state.eye_state_detector import EyeStateDetector
 from state.head_pose_detector import HeadPoseDetector
 from state.state_tracker import StateTrackerProtocol
@@ -32,9 +32,6 @@ from ui.mirror_ui import MirrorUI
 from vision.blink_detector import EarBlinkDetector
 from vision.eye_movement_detector import IrisGazeDetector
 from vision.face_landmarks import FaceLandmarkerTask
-from vision.facial_expression_classifier import (
-    BlendshapeExpressionClassifier,
-)
 from vision.posture_detector import MediaPipePostureDetector
 
 logger = logging.getLogger(__name__)
@@ -93,7 +90,6 @@ class PipelineController:
         self._head_pose_detector = HeadPoseDetector()
         self._yawn_detector = YawnDetector()
         self._gaze_detector = IrisGazeDetector()
-        self._expression_classifier = BlendshapeExpressionClassifier()
         self._posture_detector = MediaPipePostureDetector()
 
         # Audio
@@ -141,6 +137,8 @@ class PipelineController:
 
         if self._mic is not None:
             self._mic.start()
+
+        self._state_tracker.start()
 
         frame_interval = 1.0 / self._config.target_fps
         logger.debug(
@@ -286,15 +284,6 @@ class PipelineController:
                         analysis.head_pose_label.confidence,
                     )
 
-            # 5. Expression (blendshape-based)
-            if blendshapes:
-                expression = self._expression_classifier.classify(blendshapes[0])
-                analysis.expression = expression
-                logger.debug(
-                    "_tick: expression=%s conf=%.2f",
-                    expression.label,
-                    expression.confidence,
-                )
         else:
             self._eye_state_detector.reset()
             self._head_pose_detector.reset()
@@ -519,6 +508,11 @@ class PipelineController:
 
         self._stop_event.set()
 
+        try:
+            self._state_tracker.stop()
+        except Exception:
+            logger.exception("Failed to stop state tracker during cleanup")
+
         if self._mic is not None:
             try:
                 self._mic.stop()
@@ -579,7 +573,7 @@ if __name__ == "__main__":
     from config.logging_config import setup_logging
     from input.camera_adapter import LocalCameraAdapter
     from openai import OpenAI
-    from server.samples.llm_engine import RateLimiter
+    from samples.llm_engine import RateLimiter
     from state.state_tracker import StateTracker
 
     setup_logging()

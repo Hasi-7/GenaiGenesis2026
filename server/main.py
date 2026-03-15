@@ -43,7 +43,7 @@ from input.replay_adapters import ReplayCameraAdapter, ReplayMicAdapter
 from input.screenshot_manager import ScreenshotManager
 from models.types import InputSource, PipelineConfig
 from openai import OpenAI
-from server.samples.llm_engine import LLMEngine, RateLimiter
+from samples.llm_engine import LLMEngine, RateLimiter
 from state.state_tracker import LLMStateTracker, StateTracker
 
 logger = logging.getLogger(__name__)
@@ -173,8 +173,8 @@ def main() -> None:
 
     tracker_type = settings.state_tracker_type
     client: OpenAI | None = (
-        OpenAI(api_key=settings.openai_api_key)
-        if settings.openai_api_key
+        OpenAI(api_key=settings.OPENAI_API_KEY)
+        if settings.OPENAI_API_KEY
         else None
     )
 

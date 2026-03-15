@@ -3,6 +3,7 @@ from __future__ import annotations
 import base64
 import json
 import logging
+import threading
 import time
 from collections import deque
 from collections.abc import Sequence
@@ -56,6 +57,14 @@ class StateTrackerProtocol(Protocol):
 
     def get_recent_analyses(self, seconds: float = ...) -> list[FrameAnalysis]:
         """Return frame analyses from the last N seconds."""
+        ...
+
+    def start(self) -> None:
+        """Start background processing (if any)."""
+        ...
+
+    def stop(self) -> None:
+        """Stop background processing (if any)."""
         ...
 
 
@@ -186,6 +195,12 @@ class StateTracker:
         cutoff = time.time() - seconds
         return [f for f in self._frames if f.timestamp >= cutoff]
 
+    def start(self) -> None:
+        """No-op for rule-based tracker."""
+
+    def stop(self) -> None:
+        """No-op for rule-based tracker."""
+
     def _prune(self) -> None:
         """Remove frames older than the window."""
         cutoff = time.time() - self._window_seconds
@@ -209,10 +224,15 @@ You are a cognitive state analyst. You receive a webcam image of the user \
 alongside sensor data and a history of your previous emotional assessments \
 with timestamps.
 
+You are the primary source for facial expression assessment — no rule-based \
+expression classifier is used. Your visual analysis of the user's face is \
+the sole input for expression-related state.
+
 Your tasks:
 1. Produce a brief (1-2 sentence) emotional state summary describing what \
-you observe about the user right now — facial expression, body language, \
-apparent mood or energy level.
+you observe about the user right now — facial expression (including micro-expressions, \
+brow position, mouth shape, and eye tension), body language, apparent mood or \
+energy level.
 
 2. Decide if the user needs intervention. Only set "transition" to true \
 when the user has been in a non-focused or negative state (fatigued, \
@@ -246,7 +266,11 @@ _STATE_FROM_STRING: dict[str, CognitiveStateLabel] = {
 
 
 class LLMStateTracker:
-    """State tracker that uses OpenAI vision for transition detection."""
+    """State tracker that uses OpenAI vision for transition detection.
+
+    LLM detection runs in a daemon background thread so the pipeline
+    thread is never blocked by the 1-5 s OpenAI call.
+    """
 
     def __init__(
         self,
@@ -270,11 +294,128 @@ class LLMStateTracker:
         self._last_state: CognitiveState | None = None
         self._emotional_history: deque[_EmotionalSnapshot] = deque(maxlen=10)
 
+        # Threading
+        self._lock = threading.Lock()
+        self._pending_transition: StateTransition | None = None
+        self._detection_thread: threading.Thread | None = None
+        self._stop_event = threading.Event()
+
+    # -- Lifecycle ------------------------------------------------------------
+
+    def start(self) -> None:
+        """Spawn the background detection thread."""
+        if self._detection_thread is not None:
+            return
+        self._stop_event.clear()
+        self._detection_thread = threading.Thread(
+            target=self._detection_loop,
+            name="llm-state-detection",
+            daemon=True,
+        )
+        self._detection_thread.start()
+        logger.info("LLMStateTracker: background detection thread started")
+
+    def stop(self) -> None:
+        """Signal the background thread to stop and wait for it."""
+        self._stop_event.set()
+        if self._detection_thread is not None:
+            self._detection_thread.join(timeout=10.0)
+            self._detection_thread = None
+            logger.info("LLMStateTracker: background detection thread stopped")
+
+    # -- Pipeline-facing methods (called from main thread) --------------------
+
     def add_frame(self, analysis: FrameAnalysis) -> None:
-        self._frames.append(analysis)
-        self._prune()
+        with self._lock:
+            self._frames.append(analysis)
+            self._prune_locked()
 
     def get_current_state(self) -> CognitiveState:
+        with self._lock:
+            return self._get_current_state_locked()
+
+    def detect_transition(self) -> StateTransition | None:
+        """Non-blocking poll: return any result the background thread produced."""
+        with self._lock:
+            result = self._pending_transition
+            self._pending_transition = None
+            return result
+
+    def get_recent_analyses(self, seconds: float = 5.0) -> list[FrameAnalysis]:
+        with self._lock:
+            cutoff = time.time() - seconds
+            return [f for f in self._frames if f.timestamp >= cutoff]
+
+    # -- Background thread ----------------------------------------------------
+
+    def _detection_loop(self) -> None:
+        """Runs in a daemon thread. Periodically queries the LLM."""
+        while not self._stop_event.wait(timeout=self._check_interval_seconds):
+            try:
+                self._detection_tick()
+            except Exception:
+                logger.exception("LLMStateTracker: background detection error")
+
+    def _detection_tick(self) -> None:
+        now = time.time()
+
+        # Under lock: check guards, snapshot state
+        with self._lock:
+            if len(self._frames) == 0:
+                return
+
+            if now - self._last_transition_time < self._cooldown_seconds:
+                return
+
+            if now - self._last_check_time < self._check_interval_seconds:
+                return
+
+            current = self._get_current_state_locked()
+            self._last_check_time = now
+
+        # Outside lock: capture JPEG (thread-safe on ScreenshotManager)
+        jpeg_bytes = self._screenshot_manager.encode_jpeg()
+        if not jpeg_bytes:
+            return
+
+        state_changed = (
+            self._last_state is not None
+            and current.label != self._last_state.label
+        )
+        reason = "state change" if state_changed else "interval check"
+        logger.debug(
+            "LLMStateTracker: background starting detection (%s), "
+            "current=%s confidence=%.0f%%",
+            reason,
+            current.label.value,
+            current.confidence * 100,
+        )
+
+        # Blocking LLM call — runs without any lock held
+        transition = self._query_llm(jpeg_bytes, current)
+
+        # Store result under lock
+        with self._lock:
+            if transition is not None:
+                self._last_transition_time = time.time()
+                self._last_state = transition.new_state
+                self._pending_transition = transition
+                logger.info(
+                    "LLMStateTracker: background detected %s -> %s "
+                    "(confidence=%.0f%%)",
+                    transition.previous_state.label.value,
+                    transition.new_state.label.value,
+                    transition.new_state.confidence * 100,
+                )
+            else:
+                logger.debug(
+                    "LLMStateTracker: background no transition detected"
+                )
+
+    # -- Internal helpers -----------------------------------------------------
+
+    def _get_current_state_locked(self) -> CognitiveState:
+        """Compute current state. Caller must hold self._lock."""
         signals = _collect_signals(self._frames)
         label, confidence = _weighted_vote(signals)
         state = CognitiveState(
@@ -286,56 +427,8 @@ class LLMStateTracker:
         self._last_state = state
         return state
 
-    def detect_transition(self) -> StateTransition | None:
-        if len(self._frames) == 0:
-            return None
-
-        now = time.time()
-        if now - self._last_transition_time < self._cooldown_seconds:
-            return None
-
-        # Hard minimum interval between LLM calls
-        if now - self._last_check_time < self._check_interval_seconds:
-            return None
-
-        current = self.get_current_state()
-
-        jpeg_bytes = self._screenshot_manager.encode_jpeg()
-        if not jpeg_bytes:
-            return None
-
-        self._last_check_time = now
-
-        state_changed = (
-            self._last_state is not None and current.label != self._last_state.label
-        )
-        reason = "state change" if state_changed else "interval check"
-        logger.debug(
-            "LLMStateTracker: starting detection (%s), current=%s confidence=%.0f%%",
-            reason,
-            current.label.value,
-            current.confidence * 100,
-        )
-
-        transition = self._query_llm(jpeg_bytes, current)
-        if transition is not None:
-            self._last_transition_time = now
-            self._last_state = transition.new_state
-            logger.info(
-                "LLMStateTracker: transition detected %s -> %s (confidence=%.0f%%)",
-                transition.previous_state.label.value,
-                transition.new_state.label.value,
-                transition.new_state.confidence * 100,
-            )
-        else:
-            logger.debug("LLMStateTracker: no transition detected")
-        return transition
-
-    def get_recent_analyses(self, seconds: float = 5.0) -> list[FrameAnalysis]:
-        cutoff = time.time() - seconds
-        return [f for f in self._frames if f.timestamp >= cutoff]
-
-    def _prune(self) -> None:
+    def _prune_locked(self) -> None:
+        """Remove stale frames. Caller must hold self._lock."""
         cutoff = time.time() - self._window_seconds
         while self._frames and self._frames[0].timestamp < cutoff:
             self._frames.popleft()
@@ -397,11 +490,11 @@ class LLMStateTracker:
 
             t_total = time.time() - t_start
             raw = "".join(chunks).strip()
-            logger.debug("LLMStateTracker: LLM response raw=%r", raw)
+            logger.info("LLMStateTracker: LLM response raw=%r", raw)
 
             input_tokens = usage.prompt_tokens if usage else -1
             output_tokens = usage.completion_tokens if usage else -1
-            logger.debug(
+            logger.info(
                 "LLMStateTracker: tokens_in=%d tokens_out=%d "
                 "ttft=%.3fs latency=%.3fs",
                 input_tokens,
@@ -416,15 +509,23 @@ class LLMStateTracker:
         return self._parse_response(raw, current)
 
     def _build_context(self, current: CognitiveState) -> str:
-        recent = self.get_recent_analyses(5.0)
+        # Snapshot shared state under lock
+        with self._lock:
+            recent = list(
+                f for f in self._frames if f.timestamp >= time.time() - 5.0
+            )
+            last_transition_time = self._last_transition_time
+            last_state = self._last_state
+            emotional_history = list(self._emotional_history)
+
         lines = [
             f"Current state: {current.label.value} "
             f"(confidence: {current.confidence:.0%})",
             f"Time since last transition: "
-            f"{time.time() - self._last_transition_time:.0f}s",
+            f"{time.time() - last_transition_time:.0f}s",
         ]
-        if self._last_state is not None:
-            lines.append(f"Previous state: {self._last_state.label.value}")
+        if last_state is not None:
+            lines.append(f"Previous state: {last_state.label.value}")
 
         # Summarise recent signals
         signals = _collect_signals(recent)
@@ -444,9 +545,9 @@ class LLMStateTracker:
             ) / len(blink_frames)
             lines.append(f"Avg blink rate: {avg_bpm:.1f} bpm")
 
-        if self._emotional_history:
+        if emotional_history:
             lines.append("\n--- Previous Emotional Assessments ---")
-            for snap in self._emotional_history:
+            for snap in emotional_history:
                 lines.append(
                     f"[{snap.iso_time}] ({snap.state}, "
                     f"{snap.confidence:.0%}): {snap.summary}"
@@ -480,8 +581,9 @@ class LLMStateTracker:
                 state=state_str,
                 confidence=confidence,
             )
-            self._emotional_history.append(snapshot)
-            logger.debug("LLMStateTracker: emotional state: %s", summary)
+            with self._lock:
+                self._emotional_history.append(snapshot)
+            logger.info("LLMStateTracker: emotional state: %s", summary)
 
         if not data.get("transition", False):
             return None
@@ -523,8 +625,6 @@ def _collect_signals(
             signals.append(f.gaze_label)
         elif f.gaze is not None:
             signals.append(ClassifierResult(label=f.gaze.direction, confidence=0.7))
-        if f.expression is not None:
-            signals.append(f.expression)
         if f.posture is not None:
             signals.append(f.posture)
         if f.speech_tone is not None and f.speech_tone.label != "silent":
@@ -571,7 +671,6 @@ if __name__ == "__main__":
         t = base_time + i * 0.66
         analysis = FrameAnalysis(
             timestamp=t,
-            expression=ClassifierResult(label="neutral", confidence=0.85),
             posture=ClassifierResult(label="upright", confidence=0.9),
             speech_tone=ClassifierResult(label="calm", confidence=0.8),
         )
@@ -594,7 +693,6 @@ if __name__ == "__main__":
         tracker2.add_frame(
             FrameAnalysis(
                 timestamp=t,
-                expression=ClassifierResult(label="relaxed", confidence=0.9),
                 posture=ClassifierResult(label="upright", confidence=0.85),
             )
         )
@@ -605,7 +703,6 @@ if __name__ == "__main__":
         tracker2.add_frame(
             FrameAnalysis(
                 timestamp=t,
-                expression=ClassifierResult(label="tense", confidence=0.9),
                 speech_tone=ClassifierResult(label="stressed", confidence=0.85),
             )
         )

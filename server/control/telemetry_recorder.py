@@ -8,7 +8,7 @@ from pathlib import Path
 
 from models.types import CognitiveState, FrameAnalysis, LLMResponse
 
-from server.control.store import ControlStore
+from control.store import ControlStore
 
 
 @dataclass(slots=True)

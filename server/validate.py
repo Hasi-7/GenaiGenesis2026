@@ -157,104 +157,9 @@ def _build_table(title: str, results: list[CaseResult]) -> Table:
 
 
 # ---------------------------------------------------------------------------
-# 1. BlendshapeExpressionClassifier
+# 1. (Removed – BlendshapeExpressionClassifier has been removed;
+#     facial expression is now handled by the LLMStateTracker.)
 # ---------------------------------------------------------------------------
-
-def validate_expression() -> list[CaseResult]:
-    from vision.facial_expression_classifier import BlendshapeExpressionClassifier
-
-    clf = BlendshapeExpressionClassifier()
-    results: list[CaseResult] = []
-
-    cases: list[tuple[str, dict[str, float], str, str]] = [
-        (
-            "All zeros -> neutral",
-            {},
-            "neutral",
-            "No blendshape activation defaults to neutral",
-        ),
-        (
-            "Heavy brow furrow -> tense",
-            {"browDownLeft": 0.9, "browDownRight": 0.9, "browInnerUp": 0.8},
-            "tense",
-            "browDown + browInnerUp = classic frown",
-        ),
-        (
-            "Eye squint + nose sneer -> tense",
-            {"eyeSquintLeft": 0.85, "eyeSquintRight": 0.85,
-             "noseSneerLeft": 0.8, "noseSneerRight": 0.8},
-            "tense",
-            "disgust/stress face",
-        ),
-        (
-            "Tight lips (pressed) -> tense",
-            {"mouthPressLeft": 0.9, "mouthPressRight": 0.9,
-             "mouthFrownLeft": 0.7, "mouthFrownRight": 0.7},
-            "tense",
-            "pursed lips = tension",
-        ),
-        (
-            "Big genuine smile -> relaxed",
-            {"mouthSmileLeft": 0.95, "mouthSmileRight": 0.95,
-             "cheekSquintLeft": 0.8, "cheekSquintRight": 0.8},
-            "relaxed",
-            "Duchenne smile markers",
-        ),
-        (
-            "Smile without cheek squint -> relaxed",
-            {"mouthSmileLeft": 0.8, "mouthSmileRight": 0.8},
-            "relaxed",
-            "Social smile still relaxed",
-        ),
-        (
-            "Jaw open + smile -> relaxed",
-            {"mouthSmileLeft": 0.6, "mouthSmileRight": 0.6, "jawOpen": 0.7},
-            "relaxed",
-            "Open relaxed expression",
-        ),
-        (
-            "Slight brow raise only -> neutral",
-            {"browInnerUp": 0.15},
-            "neutral",
-            "Sub-threshold signal stays neutral",
-        ),
-        (
-            "Mixed tense + relaxed -> strongest wins",
-            {"browDownLeft": 0.9, "browDownRight": 0.9,
-             "mouthSmileLeft": 0.2, "mouthSmileRight": 0.2},
-            "tense",
-            "Tense signals outweigh mild smile",
-        ),
-        (
-            "Strong frown -> tense",
-            {"mouthFrownLeft": 0.9, "mouthFrownRight": 0.9,
-             "browDownLeft": 0.7, "browDownRight": 0.7},
-            "tense",
-            "Classic frown expression",
-        ),
-    ]
-
-    for desc, blendshapes, expected, note in cases:
-        result = clf.classify(blendshapes)
-        scores = clf.raw_scores(blendshapes)
-        inputs_str = (
-            ", ".join(f"{k}={v:.2f}" for k, v in blendshapes.items())
-            if blendshapes else "all zeros"
-        )
-        top_scores = ", ".join(
-            f"{k}={v:.3f}" for k, v in sorted(scores.items(), key=lambda x: -x[1])
-        )
-        results.append(CaseResult(
-            description=desc,
-            inputs=inputs_str[:60] + ("…" if len(inputs_str) > 60 else ""),
-            expected=expected,
-            actual=result.label,
-            confidence=result.confidence,
-            passed=result.label == expected,
-            note=f"raw: {top_scores}",
-        ))
-
-    return results
 
 
 # ---------------------------------------------------------------------------
@@ -930,11 +835,6 @@ def _build_summary(sections: list[tuple[str, list[CaseResult]]]) -> Table:
 # ---------------------------------------------------------------------------
 
 SECTION_DESCRIPTIONS = {
-    "BlendshapeExpressionClassifier": (
-        "Detects facial expressions (neutral / relaxed / tense) from Apple ARKit blendshape weights. "
-        "Each test feeds known blendshape values (e.g. browDownLeft=0.9 for a frown) directly into the "
-        "classifier and checks it returns the right label — no camera needed."
-    ),
     "EarBlinkDetector": (
         "Measures eye-openness via the Eye Aspect Ratio (EAR) and counts blinks per minute. "
         "Tests use synthetic landmark arrays built to produce exact EAR values, plus a state-machine "
@@ -1243,7 +1143,6 @@ def main() -> None:
     console.print()
 
     sections = [
-        ("BlendshapeExpressionClassifier",   validate_expression,        "vision/facial_expression_classifier.py"),
         ("EarBlinkDetector",                  validate_blink,             "vision/blink_detector.py"),
         ("IrisGazeDetector",                  validate_gaze,              "vision/eye_movement_detector.py"),
         ("MediaPipePostureDetector",          validate_posture,           "vision/posture_detector.py"),

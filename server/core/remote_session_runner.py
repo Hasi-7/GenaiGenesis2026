@@ -9,11 +9,11 @@ from input.remote_media_server import RemoteClientSession
 from input.screenshot_manager import ScreenshotManager
 from models.types import PipelineConfig
 from openai import OpenAI
-from server.samples.llm_engine import LLMEngine, RateLimiter
+from samples.llm_engine import LLMEngine, RateLimiter
 from state.state_tracker import LLMStateTracker, StateTracker
 
-from server.control.store import get_control_store
-from server.control.telemetry_recorder import (
+from control.store import get_control_store
+from control.telemetry_recorder import (
     CompositeTelemetrySink,
     DeviceIdentity,
     TelemetryRecorder,

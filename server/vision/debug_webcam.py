@@ -20,7 +20,6 @@ from numpy.typing import NDArray
 
 from vision.blink_detector import EarBlinkDetector
 from vision.eye_movement_detector import IrisGazeDetector
-from vision.facial_expression_classifier import BlendshapeExpressionClassifier
 from vision.face_landmarks import FaceLandmarkerTask
 from vision.posture_detector import MediaPipePostureDetector
 from models.types import BlinkData, ClassifierResult, GazeData, PostureData
@@ -234,7 +233,6 @@ def run() -> None:
     face_src = FaceLandmarkerTask()
     blink_det = EarBlinkDetector()
     gaze_det = IrisGazeDetector()
-    expr_clf = BlendshapeExpressionClassifier()
     posture_det = MediaPipePostureDetector()
 
     prev_time = time.time()
@@ -268,8 +266,6 @@ def run() -> None:
                 blink_cls = blink_det.classify(blink)
                 gaze = gaze_det.detect(lm)
                 gaze_cls = gaze_det.classify(gaze)
-                if face_src.last_blendshapes:
-                    expr_cls = expr_clf.classify(face_src.last_blendshapes[0])
 
             # --- Posture (uses full frame, not landmarks) ---
             posture: PostureData | None = posture_det.detect(rgb)
