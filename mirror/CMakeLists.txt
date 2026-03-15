@@ -13,6 +13,12 @@ option(
     OFF
 )
 
+if(COGNITIVESENSE_REQUIRE_LCD)
+    message(STATUS "mirror_frame_streamer: LCD support is required for this configure run")
+else()
+    message(STATUS "mirror_frame_streamer: LCD support is optional for this configure run")
+endif()
+
 add_library(
     mirror_capture
     camera_capture.c

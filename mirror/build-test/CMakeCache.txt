@@ -184,7 +184,7 @@ CMAKE_STRIP:FILEPATH=/usr/bin/strip
 CMAKE_VERBOSE_MAKEFILE:BOOL=FALSE
 
 //Fail configuration when libgpiod-backed LCD support is unavailable
-COGNITIVESENSE_REQUIRE_LCD:BOOL=OFF
+COGNITIVESENSE_REQUIRE_LCD:BOOL=ON
 
 //Path to a file.
 GPIOD_INCLUDE_DIR:PATH=/usr/include
