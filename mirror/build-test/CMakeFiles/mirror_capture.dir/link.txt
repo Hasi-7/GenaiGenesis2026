@@ -1,0 +1,2 @@
+/usr/bin/ar qc libmirror_capture.a CMakeFiles/mirror_capture.dir/camera_capture.c.o
+/usr/bin/ranlib libmirror_capture.a
