@@ -1,22 +1,79 @@
 ## CognitiveSense
 
-This repo currently ships as three pieces:
+CognitiveSense is a multi-client fatigue and cognitive-state monitoring project with:
 
-1. `frontend/` = the Electron desktop client
-2. `server/` = the Python analysis backend and control-plane API
-3. `mirror/` = the Raspberry Pi native streamer
+1. `server/` for the Python analysis pipeline and control-plane API
+2. `frontend/` for the Electron desktop client
+3. `mirror/` for the Raspberry Pi native frame streamer
 
-The intended v1 deployment model is:
+The current architecture is a thin-client model:
 
-- ship the Electron app to Windows / macOS / Linux users
-- run the Python backend remotely on a machine you control
-- use the built-in control website for registration, device claiming, and period scores
+- desktop and mirror devices capture media locally
+- both stream into the Python backend on TCP `9000`
+- the backend runs state detection and LLM feedback generation
+- the control website on `8080` handles registration, device claiming, snapshots, and timeline views
 
-## Fastest Way To Run It Now
+## Repo Layout
 
-### 1. Start the remote backend and website
+- `main.py`: top-level entrypoint for the Python app
+- `server/`: analysis pipeline, remote media receiver, control API, storage, and UI helpers
+- `frontend/`: Electron + React desktop shell
+- `mirror/`: Raspberry Pi camera capture and frame streaming binaries
+- `tests/`: Python regression tests
+- `DEPLOYMENT.md`: backend deployment notes
+- `DISTRIBUTION.md`: desktop packaging and release notes
+- `scripts/setup_wsl_mirror_proxy.ps1`: Windows-to-WSL port forwarding helper for Raspberry Pi connectivity
 
-From the repo root:
+## Prerequisites
+
+### Backend
+
+- Python `3.11`
+- `uv`
+
+### Desktop client
+
+- Node.js `20+`
+- npm
+
+### Optional local deployment
+
+- Docker
+- Docker Compose
+
+### Raspberry Pi mirror
+
+- CMake `3.16+`
+- a C compiler
+- `rpicam-vid` available on the Pi path
+
+## Environment Setup
+
+The Python backend reads configuration from [`.env`](/mnt/c/Personal/VSCode/GenaiGenesis2026/.env).
+
+Common variables:
+
+- `OPENAI_API_KEY`: enables OpenAI-backed state tracking and feedback
+- `COGNITIVESENSE_SERVER_HOST`: override backend bind host for remote media ingress
+- `COGNITIVESENSE_SERVER_PORT`: override backend media port, default `9000`
+- `COGNITIVESENSE_LOG_LEVEL`: logging level, default `DEBUG`
+- `STATE_TRACKER_TYPE` / `state_tracker_type`: select `llm` or `rule`
+- `TARGET_FPS` / `target_fps`: target analysis FPS
+- `LLM_STATE_TRACKER_MODEL` / `llm_state_tracker_model`: model used for state inference
+- `LLM_FEEDBACK_MODEL` / `llm_feedback_model`: model used for feedback generation
+
+The main settings live in [settings.py](/mnt/c/Personal/VSCode/GenaiGenesis2026/server/config/settings.py). Current defaults include:
+
+- `state_tracker_type = "llm"`
+- `target_fps = 15`
+- `llm_state_tracker_model = "gpt-5-mini"`
+- `llm_feedback_model = "gpt-4.1-nano"`
+
+## Fastest Way To Run Everything
+
+### Option 1: Docker for backend, local desktop app
+
+Start the backend services from the repo root:
 
 ```bash
 docker compose up --build
@@ -24,23 +81,16 @@ docker compose up --build
 
 This starts:
 
-- analysis media ingress on `9000`
-- control website + API on `8080`
+- `analysis` on TCP `9000`
+- `control` on HTTP `8080`
 
-Open the website at:
+Open:
 
 ```text
 http://127.0.0.1:8080/
 ```
 
-There you can:
-
-- register or log in
-- see unclaimed devices
-- claim a desktop or mirror device to your identity directly from the unclaimed-device list
-- view aggregate scores and timeline data
-
-### 2. Run the desktop app locally against that backend
+Then start the desktop app:
 
 ```bash
 cd frontend
@@ -48,9 +98,54 @@ npm ci
 npm run dev
 ```
 
-The desktop app is a thin client. It captures local camera/mic and streams to the backend on `9000`.
+If `npm run dev` fails with missing commands such as `concurrently`, run `npm ci` first in `frontend/`.
 
-### 3. Package desktop installers
+### Option 2: Run backend directly with `uv`
+
+Install Python dependencies:
+
+```bash
+uv sync --all-groups
+```
+
+Start the unified Python server:
+
+```bash
+uv run python main.py server
+```
+
+Useful equivalents:
+
+```bash
+uv run cognitivesense server
+uv run cognitivesense mirror
+```
+
+Notes:
+
+- `server` and `mirror` both start the same unified remote media receiver
+- `frontend` is still accepted as a deprecated alias
+- the default desktop mode is `uv run python main.py`
+
+Start the control website directly if needed:
+
+```bash
+uv run python -m uvicorn server.control.api:app --host 0.0.0.0 --port 8080
+```
+
+## Desktop Client
+
+The Electron app is a thin client. It captures camera and microphone data locally and forwards them to the backend.
+
+Development:
+
+```bash
+cd frontend
+npm ci
+npm run dev
+```
+
+Build desktop bundles:
 
 ```bash
 cd frontend
@@ -60,15 +155,13 @@ npm run dist
 
 Artifacts are written to `frontend/release/`.
 
-Targets currently configured:
+Currently configured packaging targets:
 
 - Windows: `nsis`
 - macOS: `dmg`
 - Linux: `AppImage` and `deb`
 
-## Runtime Configuration
-
-The Electron app stores runtime connection info in a per-user `client-config.json` file inside the Electron user-data directory.
+The desktop app stores runtime connection info in a per-user `client-config.json` inside the Electron user-data directory.
 
 Stored fields:
 
@@ -78,213 +171,118 @@ Stored fields:
 - `deviceId`
 - `deviceName`
 
-This is how a shipped desktop build points at a remote backend without being rebuilt.
-
-Default values:
+Defaults:
 
 - media host: `127.0.0.1`
 - media port: `9000`
-- control API URL: `http://127.0.0.1:8080`
+- API base URL: `http://127.0.0.1:8080`
 
-## Local Python Development
+## Mirror Streaming
 
-This repo uses `uv` for Python dependency management and command execution.
-
-### Setup
-
-```bash
-uv sync --all-groups
-```
-
-### Run the analysis server without Docker
-
-From the repo root:
-
-```bash
-uv run python main.py server
-```
-
-Useful aliases:
-
-```bash
-uv run cognitivesense
-uv run cognitivesense mirror
-```
-
-Current port behavior:
-
-- `python main.py server` listens on `9000` for both Electron and Raspberry Pi clients
-- `cognitivesense mirror` is an alias for the same unified network server
-- override the media port with `COGNITIVESENSE_SERVER_PORT`
-
-### Run the control API directly
-
-```bash
-uv run uvicorn server.control.api:app --host 0.0.0.0 --port 8080
-```
-
-### Checks
-
-```bash
-uv run pyright .
-uv run ruff check .
-```
-
-## Auth And Device Association
-
-Current model:
-
-- each desktop or mirror device has a stable local `deviceId`
-- the analysis backend records those devices automatically when they connect
-- the control website shows them as unclaimed until a signed-in user claims them
-- users do not need to manually retrieve the key from the app just to claim a device; the website exposes recent unclaimed devices and can claim them directly
-- period scores aggregate across all devices claimed by that user
-
-This is local/self-hosted v1 auth, not a production SaaS auth stack yet.
-
-## Shipping And Deployment Docs
-
-- desktop packaging and release notes: `DISTRIBUTION.md`
-- remote backend deployment: `DEPLOYMENT.md`
-- example deployment env file: `deploy.env.example`
-
-## Mirror Smoke Test
-
-On the Raspberry Pi, build the native capture smoke test from the repo root:
+Build the Raspberry Pi binaries from the repo root:
 
 ```bash
 cmake -S mirror -B mirror/build
 cmake --build mirror/build
 ```
 
-Run it directly against the Pi camera:
+Run the capture smoke test on the Pi:
 
 ```bash
 ./mirror/build/mirror_capture_smoke
 ./mirror/build/mirror_capture_smoke 1280 720 8000
 ./mirror/build/mirror_capture_smoke 1280 720 8000 /home/pi/frame.bmp
-./mirror/build/mirror_capture_smoke stream 192.168.1.10
-./mirror/build/mirror_capture_smoke stream 192.168.1.10 9000 640 480 15
 ```
 
-Capture arguments are `width height timeout_ms [output_path]`. The smoke test prints one captured frame, saves a BMP to `captured_frame.bmp` by default, and exits with `0` on success.
+Arguments are `width height timeout_ms [output_path]`.
 
-Streaming arguments are `stream <server_ip> [port] [width] [height] [fps]`. This launches the continuous 15 FPS network stream test through the built `mirror_frame_streamer` binary.
-
-## Mirror Streaming
-
-Run the backend on the receiving machine:
-
-```bash
-uv run cognitivesense mirror
-```
-
-If you run the Python server inside WSL2, Raspberry Pi devices on your LAN usually
-cannot connect to it directly through the Windows Wi-Fi IP until Windows forwards
-the port into WSL. Run this once from an elevated Windows PowerShell:
-
-```powershell
-powershell -ExecutionPolicy Bypass -File .\scripts\setup_wsl_mirror_proxy.ps1 -Port 9000
-```
-
-Then point the Raspberry Pi sender at the Windows LAN IP that the script prints.
-
-Build the mirror streamer on the Raspberry Pi:
-
-```bash
-cmake -S mirror -B mirror/build
-cmake --build mirror/build
-```
-
-Then stream frames to the server:
+To continuously stream frames to the backend:
 
 ```bash
 ./mirror/build/mirror_frame_streamer 192.168.1.10
 ./mirror/build/mirror_frame_streamer 192.168.1.10 9000 640 480 15
 ```
 
-Arguments are `server_ip [port] [width] [height] [fps]`. The sender uses `rpicam-vid` when available and sends MJPEG frames over TCP to the Python mirror receiver listening on port `9000` by default.
+Arguments are `server_ip [port] [width] [height] [fps]`.
 
-To make a mirror device claimable from the website, either let it use its hostname as the device ID or set an explicit one:
+The streamer uses `rpicam-vid` when available and sends MJPEG frames over TCP.
+
+To make a mirror device claimable with a stable identity:
 
 ```bash
 COGNITIVESENSE_DEVICE_ID=bathroom-mirror ./mirror/build/mirror_frame_streamer 192.168.1.10
 ```
 
-### Mirror LCD Feedback
+If the backend runs inside WSL2, Raspberry Pi devices on your LAN usually need Windows to forward the port into WSL first. Run this once from an elevated Windows PowerShell:
 
-The Raspberry Pi mirror streamer can now mirror server state and LLM feedback onto a directly wired HD44780-style 16x2 LCD with no I2C backpack.
-
-Build dependency on the Pi:
-
-```bash
-sudo apt install libgpiod-dev gpiod
-cmake -S mirror -B mirror/build -DCOGNITIVESENSE_REQUIRE_LCD=ON
-cmake --build mirror/build
+```powershell
+powershell -ExecutionPolicy Bypass -File .\scripts\setup_wsl_mirror_proxy.ps1 -Port 9000
 ```
 
-When CMake is configured correctly, it should print a line like:
+Then use the printed Windows LAN IP as the Raspberry Pi target address.
+
+## Control Website
+
+Open the control site at:
 
 ```text
-mirror_frame_streamer: LCD support enabled with libgpiod
+http://127.0.0.1:8080/
 ```
 
-If that line does not appear, the LCD code is not compiled into the binary.
+The website currently supports:
 
-Enable the LCD by exporting the BCM GPIO pins you wired for `RS`, `E`, and `D4`-`D7`:
+- registration and login
+- device discovery for newly connected but unclaimed devices
+- claiming desktop and mirror devices
+- renaming claimed devices
+- recent feedback history
+- overview metrics and timeline views
+- device snapshot previews
+- live feed updates for claimed devices
+
+## Auth And Device Association
+
+The current model is local and self-hosted:
+
+- each desktop or mirror client sends a stable `deviceId`
+- the backend records devices automatically when they connect
+- unclaimed devices appear in the control website
+- a signed-in user can claim a device from the website
+- user-level summaries aggregate across claimed devices
+
+Persisted data currently includes:
+
+- users
+- auth tokens
+- devices
+- monitoring sessions
+- state samples
+- feedback events
+- snapshot images
+
+Raw audio and raw frame archives are not stored by default.
+
+## Development Checks
+
+Python:
 
 ```bash
-export COGNITIVESENSE_LCD_ENABLE=1
-export COGNITIVESENSE_LCD_RS_PIN=26
-export COGNITIVESENSE_LCD_E_PIN=19
-export COGNITIVESENSE_LCD_D4_PIN=13
-export COGNITIVESENSE_LCD_D5_PIN=6
-export COGNITIVESENSE_LCD_D6_PIN=5
-export COGNITIVESENSE_LCD_D7_PIN=11
+uv run pyright .
+uv run ruff check .
 ```
 
-Those are BCM GPIO numbers. For the Raspberry Pi header they map to:
-
-- `GPIO26` -> physical pin `37`
-- `GPIO19` -> physical pin `35`
-- `GPIO13` -> physical pin `33`
-- `GPIO6` -> physical pin `31`
-- `GPIO5` -> physical pin `29`
-- `GPIO11` -> physical pin `23`
-
-If your Pi exposes the header lines through a different gpiochip, set it explicitly:
+Frontend:
 
 ```bash
-export COGNITIVESENSE_LCD_GPIO_CHIP=/dev/gpiochip4
+cd frontend
+npm ci
+npm run build
 ```
 
-Then start the mirror streamer with the LCD environment enabled:
+## Deployment And Distribution
 
-```bash
-COGNITIVESENSE_LCD_ENABLE=1 \
-COGNITIVESENSE_LCD_RS_PIN=26 \
-COGNITIVESENSE_LCD_E_PIN=19 \
-COGNITIVESENSE_LCD_D4_PIN=13 \
-COGNITIVESENSE_LCD_D5_PIN=6 \
-COGNITIVESENSE_LCD_D6_PIN=5 \
-COGNITIVESENSE_LCD_D7_PIN=11 \
-./mirror/build/mirror_frame_streamer 192.168.1.10 9000 640 480 15 2>&1 | tee mirror_lcd.log
-```
+For more detailed docs:
 
-On startup, look for:
-
-```text
-LCD initialized on /dev/gpiochipX ...
-```
-
-If you instead see one of these messages, the LCD init path is not active yet:
-
-- `LCD enabled, but libgpiod support was not compiled in`
-- `LCD enabled, but no gpiochip could be opened`
-- `LCD line request failed`
-
-Once initialized, the first line shows the current analyzed state, and incoming LLM feedback is written onto the display.
-
-## Control Website Live Feeds
-
-Claimed devices now publish labeled snapshot previews into the control website. The selected device preview still updates live, and the main dashboard also shows a live feed grid for all claimed devices so mirror and desktop streams stay visible outside of debugging.
+- [DEPLOYMENT.md](/mnt/c/Personal/VSCode/GenaiGenesis2026/DEPLOYMENT.md): remote backend deployment
+- [DISTRIBUTION.md](/mnt/c/Personal/VSCode/GenaiGenesis2026/DISTRIBUTION.md): desktop packaging
+- [deploy.env.example](/mnt/c/Personal/VSCode/GenaiGenesis2026/deploy.env.example): example deployment environment file
